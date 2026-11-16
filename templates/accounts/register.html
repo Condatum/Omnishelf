@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Create Account — OmniShelf{% endblock %}
+
+{% block content %}
+<section class="mx-auto flex min-h-[75vh] max-w-md items-center px-4 py-12">
+    <div class="w-full rounded-2xl border border-shelf-border bg-shelf-surface p-8 shadow-2xl">
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold tracking-tight text-white">Create your OmniShelf</h1>
+            <p class="mt-1.5 text-sm text-slate-400">Private, UUID-backed library persistence for your serialized reads.</p>
+        </div>
+
+        {% if form.non_field_errors %}
+            <div role="alert" class="mb-5 rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                {% for error in form.non_field_errors %}
+                    <p>{{ error }}</p>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post" action="{% url 'accounts:register' %}" class="space-y-4">
+            {% csrf_token %}
+
+            <div>
+                <label for="{{ form.username.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-200">
+                    Username
+                </label>
+                {{ form.username }}
+                {% if form.username.errors %}
+                    <p class="mt-1.5 text-xs text-rose-400">{{ form.username.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.email.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-200">
+                    Email address
+                </label>
+                {{ form.email }}
+                {% if form.email.errors %}
+                    <p class="mt-1.5 text-xs text-rose-400">{{ form.email.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div x-data="{ showPassword: false }">
+                <div class="mb-1.5 flex items-center justify-between">
+                    <label for="{{ form.password1.id_for_label }}" class="block text-sm font-medium text-slate-200">
+                        Password
+                    </label>
+                    <button type="button"
+                            @click="showPassword = !showPassword"
+                            class="text-xs font-medium text-indigo-400 hover:text-indigo-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1">
+                        <span x-text="showPassword ? 'Hide password' : 'Show password'">Show password</span>
+                    </button>
+                </div>
+                <input :type="showPassword ? 'text' : 'password'"
+                       name="{{ form.password1.html_name }}"
+                       id="{{ form.password1.id_for_label }}"
+                       autocomplete="new-password"
+                       placeholder="Create a strong password"
+                       required
+                       class="w-full rounded-xl border border-shelf-border bg-shelf-bg px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40">
+                {% if form.password1.errors %}
+                    <p class="mt-1.5 text-xs text-rose-400">{{ form.password1.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label for="{{ form.password2.id_for_label }}" class="mb-1.5 block text-sm font-medium text-slate-200">
+                    Confirm password
+                </label>
+                {{ form.password2 }}
+                {% if form.password2.errors %}
+                    <p class="mt-1.5 text-xs text-rose-400">{{ form.password2.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <button type="submit"
+                    class="mt-2 w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                Create Account
+            </button>
+        </form>
+
+        <p class="mt-6 text-center text-sm text-slate-400">
+            Already have an account?
+            <a href="{% url 'accounts:login' %}" class="font-medium text-indigo-400 hover:text-indigo-300">Sign in</a>
+        </p>
+    </div>
+</section>
+{% endblock %}
