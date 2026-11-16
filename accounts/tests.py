@@ -1,8 +1,12 @@
+import json
 import uuid
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+
+from .backup import BACKUP_SCHEMA_VERSION
 
 User = get_user_model()
 
@@ -66,3 +70,58 @@ class CustomUserAuthTests(TestCase):
         response = self.client.post(reverse('accounts:logout'))
         self.assertEqual(response.status_code, 302)
         self.assertIn(reverse('accounts:login'), response.url)
+
+
+class DataSovereigntyBackupTests(TestCase):
+    """Verify JSON library export and import endpoints."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username='backup_user',
+            email='backup@example.com',
+            password='StrongPassword123!',
+        )
+
+    def test_export_requires_authentication(self):
+        response = self.client.get(reverse('accounts:export_library'))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse('accounts:login'), response.url)
+
+    def test_export_and_import_roundtrip(self):
+        self.client.force_login(self.user)
+        export_resp = self.client.get(reverse('accounts:export_library'))
+        self.assertEqual(export_resp.status_code, 200)
+        self.assertEqual(export_resp['Content-Type'], 'application/json')
+
+        data = json.loads(export_resp.content.decode('utf-8'))
+        self.assertEqual(data['schema_version'], BACKUP_SCHEMA_VERSION)
+        self.assertEqual(data['user']['username'], 'backup_user')
+        self.assertEqual(data['user']['id'], str(self.user.pk))
+
+        uploaded = SimpleUploadedFile(
+            'backup.json',
+            export_resp.content,
+            content_type='application/json',
+        )
+        import_resp = self.client.post(
+            reverse('accounts:import_library'),
+            {'backup_file': uploaded},
+            follow=True,
+        )
+        self.assertEqual(import_resp.status_code, 200)
+        self.assertContains(import_resp, 'Backup restored:')
+
+    def test_import_rejects_invalid_json_schema(self):
+        self.client.force_login(self.user)
+        bad_file = SimpleUploadedFile(
+            'bad.json',
+            b'{"schema_version": "unknown"}',
+            content_type='application/json',
+        )
+        resp = self.client.post(
+            reverse('accounts:import_library'),
+            {'backup_file': bad_file},
+            follow=True,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Import failed:')
