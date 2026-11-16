@@ -96,3 +96,4 @@ python manage.py runserver
 - **Phase 4:** Dynamic taxonomy sidebar CRUD & real-time HTMX Omni-Search
 - **Phase 5:** Sandboxed `<iframe>` viewport reader, Deep-Link Resume, & Freeze Snapshot controls
 - **Phase 6:** Session-start UX telemetry & end-to-end integration QA
+
