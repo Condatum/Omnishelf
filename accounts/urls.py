@@ -1,10 +1,11 @@
-from django.http import HttpResponse
 from django.urls import path
+
+from . import views
 
 app_name = 'accounts'
 
 urlpatterns = [
-    path('login/', lambda r: HttpResponse('Login placeholder'), name='login'),
-    path('register/', lambda r: HttpResponse('Register placeholder'), name='register'),
-    path('logout/', lambda r: HttpResponse('Logout placeholder'), name='logout'),
+    path('login/', views.login_view, name='login'),
+    path('register/', views.register_view, name='register'),
+    path('logout/', views.logout_view, name='logout'),
 ]
