@@ -1,7 +1,9 @@
 import uuid
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -73,3 +75,73 @@ class Tag(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+
+class LibraryEntry(models.Model):
+    """Stateful URI pointer and metadata override record for serialized literature."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='library_entries',
+    )
+    custom_title = models.CharField(max_length=255)
+    original_source_title = models.CharField(max_length=255, blank=True)
+    custom_cover_image = models.ImageField(upload_to='covers/', blank=True, null=True)
+    custom_cover_url = models.URLField(max_length=2000, blank=True)
+    current_uri = models.URLField(max_length=2000)
+    source_domain = models.CharField(max_length=255, blank=True)
+    chapter_label = models.CharField(max_length=120, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=ReadingStatus.choices,
+        default=ReadingStatus.ACTIVE,
+    )
+    folder = models.ForeignKey(
+        Folder,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='entries',
+    )
+    tags = models.ManyToManyField(Tag, blank=True, related_name='entries')
+    notes = models.TextField(blank=True)
+    last_read_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-last_read_at', 'custom_title']
+
+    def save(self, *args, **kwargs):
+        if self.current_uri:
+            netloc = urlparse(self.current_uri).netloc.lower()
+            if netloc.startswith('www.'):
+                netloc = netloc[4:]
+            self.source_domain = netloc
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f'{self.custom_title} ({self.chapter_label or "No chapter"})'
+
+
+class ReadingSnapshot(models.Model):
+    """Immutable audit trail of frozen chapter URIs for a LibraryEntry."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    entry = models.ForeignKey(
+        LibraryEntry,
+        on_delete=models.CASCADE,
+        related_name='snapshots',
+    )
+    uri = models.URLField(max_length=2000)
+    chapter_label = models.CharField(max_length=120, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        return f'{self.entry.custom_title} @ {self.chapter_label or self.uri}'
