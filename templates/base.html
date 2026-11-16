@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>{% block title %}OmniShelf — Unified Reading Progress Tracker{% endblock %}</title>
+
+    <!-- Tailwind CSS (Zero-build Play CDN for Django Templates) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        shelf: {
+                            bg: '#0b0f17',
+                            surface: '#131a26',
+                            elevated: '#1b2434',
+                            border: '#273247',
+                            accent: '#6366f1',
+                            accentHover: '#818cf8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- HTMX & Alpine.js -->
+    <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
+    <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+
+    <style>
+        :root {
+            color-scheme: dark;
+            --color-scrollbar-track: #0b0f17;
+            --color-scrollbar-thumb: #334155;
+            scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+            accent-color: #6366f1;
+        }
+        [x-cloak] { display: none !important; }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="min-h-screen bg-shelf-bg text-slate-100 antialiased selection:bg-indigo-500/30 selection:text-indigo-200 flex flex-col"
+      hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+
+    <!-- Skip to main content for keyboard accessibility -->
+    <a href="#main-content"
+       class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-indigo-600 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+        Skip to main content
+    </a>
+
+    <!-- Top Navigation Shell -->
+    <header class="sticky top-0 z-40 border-b border-shelf-border bg-shelf-bg/85 backdrop-blur-md"
+            x-data="{ mobileMenuOpen: false }">
+        <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+            <div class="flex items-center gap-3">
+                <a href="{% url 'home' %}" class="flex items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600/20 text-indigo-400 ring-1 ring-indigo-500/30">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                    </span>
+                    <div>
+                        <span class="text-base font-semibold tracking-tight text-white">OmniShelf</span>
+                        <span class="hidden sm:inline-block ml-1.5 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-400">Reader</span>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Desktop Navigation -->
+            <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300" aria-label="Primary Navigation">
+                <a href="{% url 'home' %}" class="hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-1">Grand Library</a>
+                {% if user.is_authenticated %}
+                    <span class="text-slate-500">|</span>
+                    <span class="text-xs text-slate-400">Signed in as <strong class="text-slate-200">{{ user.username }}</strong></span>
+                    <form method="post" action="{% url 'accounts:logout' %}" class="inline">
+                        {% csrf_token %}
+                        <button type="submit"
+                                class="rounded-lg border border-shelf-border bg-shelf-surface px-3 py-1.5 text-xs font-medium text-slate-300 hover:border-slate-600 hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                            Sign out
+                        </button>
+                    </form>
+                {% else %}
+                    <a href="{% url 'accounts:login' %}" class="hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-2 py-1">Sign in</a>
+                    <a href="{% url 'accounts:register' %}" class="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                        Get Started
+                    </a>
+                {% endif %}
+            </nav>
+
+            <!-- Mobile Menu Button -->
+            <button type="button"
+                    @click="mobileMenuOpen = !mobileMenuOpen"
+                    :aria-expanded="mobileMenuOpen.toString()"
+                    aria-label="Toggle navigation menu"
+                    class="md:hidden inline-flex items-center justify-center rounded-lg p-2 text-slate-400 hover:bg-shelf-surface hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+                <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path x-show="!mobileMenuOpen" stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                    <path x-show="mobileMenuOpen" x-cloak stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Mobile Menu Panel -->
+        <div x-show="mobileMenuOpen" x-cloak x-transition class="md:hidden border-t border-shelf-border bg-shelf-surface px-4 py-3 space-y-2">
+            <a href="{% url 'home' %}" class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-200 hover:bg-shelf-elevated">Grand Library</a>
+            {% if user.is_authenticated %}
+                <div class="px-3 py-1 text-xs text-slate-400">Signed in as {{ user.username }}</div>
+                <form method="post" action="{% url 'accounts:logout' %}">
+                    {% csrf_token %}
+                    <button type="submit" class="w-full text-left rounded-lg px-3 py-2 text-sm font-medium text-rose-300 hover:bg-shelf-elevated">
+                        Sign out
+                    </button>
+                </form>
+            {% else %}
+                <a href="{% url 'accounts:login' %}" class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-200 hover:bg-shelf-elevated">Sign in</a>
+                <a href="{% url 'accounts:register' %}" class="block rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500">Get Started</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <!-- Toast Notification Region (Django messages + HTMX events) -->
+    <div id="toast-region"
+         role="status"
+         aria-live="polite"
+         x-data="{
+             toasts: [],
+             addToast(message, level = 'info') {
+                 const id = Date.now() + Math.random();
+                 this.toasts.push({ id, message, level });
+                 setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 4500);
+             }
+         }"
+         @show-toast.window="addToast($event.detail.message, $event.detail.level || 'info')"
+         class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+        {% if messages %}
+            {% for message in messages %}
+                <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4500)" x-transition
+                     class="pointer-events-auto flex items-center justify-between gap-3 rounded-xl border border-shelf-border bg-shelf-elevated px-4 py-3 text-sm text-slate-100 shadow-xl">
+                    <span>{{ message }}</span>
+                    <button type="button" @click="show = false" aria-label="Dismiss notification" class="text-slate-400 hover:text-white">&times;</button>
+                </div>
+            {% endfor %}
+        {% endif %}
+        <template x-for="toast in toasts" :key="toast.id">
+            <div x-transition
+                 class="pointer-events-auto flex items-center justify-between gap-3 rounded-xl border border-indigo-500/40 bg-shelf-elevated px-4 py-3 text-sm text-slate-100 shadow-xl">
+                <span x-text="toast.message"></span>
+                <button type="button" @click="toasts = toasts.filter(t => t.id !== toast.id)" aria-label="Dismiss notification" class="text-slate-400 hover:text-white">&times;</button>
+            </div>
+        </template>
+    </div>
+
+    <!-- Main Content -->
+    <main id="main-content" class="flex-1">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-shelf-border bg-shelf-bg py-5 text-center text-xs text-slate-500">
+        <div class="mx-auto max-w-7xl px-4">
+            OmniShelf &middot; Stateful URI Pointer &amp; Reading Progress Manager &middot; Zero-Scraping Architecture
+        </div>
+    </footer>
+
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>
