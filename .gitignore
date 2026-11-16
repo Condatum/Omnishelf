@@ -1,0 +1,38 @@
+# Python & Django
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+.env
+
+# Node
+node_modules/
+npm-debug.log*
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Monitoring & Evidence Artifacts (local submission evidence)
+BASELINE_COMMIT.txt
+GIT_HISTORY.txt
+GIT_COMMIT_DETAILS.txt
+GIT_ALL_COMMITTED_CHANGES.patch
+GIT_UNCOMMITTED_CHANGES.patch
+GIT_STATUS.txt
+GIT_DIFF_STAT.txt
+APPLICATION_SCREENSHOTS/
+GITHUB_SCREENSHOTS/
+*_FINAL_PROJECT/
+*_FINAL_PROJECT_EVIDENCE.zip
