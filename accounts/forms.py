@@ -73,3 +73,4 @@ class OmniShelfAuthenticationForm(AuthenticationForm):
             'autocomplete': 'current-password',
             'required': 'required',
         })
+

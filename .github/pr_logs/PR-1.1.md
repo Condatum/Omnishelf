@@ -14,3 +14,4 @@
 - [x] Zero story text/image scraping or copyright caching introduced.
 - [x] Strict `request.user` tenancy isolation enforced on all queries.
 - [x] All unit tests pass (`python manage.py test` — 6 tests OK).
+
