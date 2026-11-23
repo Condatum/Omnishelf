@@ -292,3 +292,161 @@ class LibraryEntryCrudModalTests(TestCase):
         self.assertFalse(LibraryEntry.objects.filter(user=self.user_b, custom_title='User B Story').exists())
 
 
+class TaxonomySidebarAndFilteringTests(TestCase):
+    """Verify HTMX Folder/Tag sidebar CRUD and filtering by Folder ID, Tag slug, and ReadingStatus."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user_a = User.objects.create_user(username='tax_a', password='StrongPassword123!')
+        cls.user_b = User.objects.create_user(username='tax_b', password='StrongPassword123!')
+
+    def test_folder_htmx_crud_and_user_isolation(self):
+        self.client.force_login(self.user_a)
+        create_resp = self.client.post(
+            reverse('library:folder_create'),
+            {'name': 'Progression Fantasy', 'color_hex': '#10b981'},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        self.assertContains(create_resp, 'Progression Fantasy')
+        folder = Folder.objects.get(user=self.user_a, name='Progression Fantasy')
+
+        # Rename folder
+        rename_resp = self.client.post(
+            reverse('library:folder_rename', kwargs={'pk': folder.pk}),
+            {'name': 'Top Progression', 'color_hex': '#10b981'},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(rename_resp.status_code, 200)
+        folder.refresh_from_db()
+        self.assertEqual(folder.name, 'Top Progression')
+
+        # Cross-tenant isolation: user_b cannot rename or delete user_a's folder
+        self.client.force_login(self.user_b)
+        self.assertEqual(
+            self.client.post(
+                reverse('library:folder_rename', kwargs={'pk': folder.pk}),
+                {'name': 'Stolen'},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(reverse('library:folder_delete', kwargs={'pk': folder.pk})).status_code,
+            404,
+        )
+
+        # Owner deletes folder cleanly
+        self.client.force_login(self.user_a)
+        del_resp = self.client.post(
+            reverse('library:folder_delete', kwargs={'pk': folder.pk}),
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(del_resp.status_code, 200)
+        self.assertFalse(Folder.objects.filter(pk=folder.pk).exists())
+
+    def test_tag_htmx_crud_and_slug_update(self):
+        self.client.force_login(self.user_a)
+        create_resp = self.client.post(
+            reverse('library:tag_create'),
+            {'name': 'Time Loop'},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(create_resp.status_code, 200)
+        tag = Tag.objects.get(user=self.user_a, slug='time-loop')
+
+        rename_resp = self.client.post(
+            reverse('library:tag_rename', kwargs={'pk': tag.pk}),
+            {'name': 'Loop Fantasy'},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(rename_resp.status_code, 200)
+        tag.refresh_from_db()
+        self.assertEqual(tag.name, 'Loop Fantasy')
+        self.assertEqual(tag.slug, 'loop-fantasy')
+
+        del_resp = self.client.post(
+            reverse('library:tag_delete', kwargs={'pk': tag.pk}),
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(del_resp.status_code, 200)
+        self.assertFalse(Tag.objects.filter(pk=tag.pk).exists())
+
+    def test_filtering_by_folder_tag_and_reading_status(self):
+        folder_sf = Folder.objects.create(user=self.user_a, name='Sci-Fi')
+        folder_f = Folder.objects.create(user=self.user_a, name='Fantasy')
+        tag_loop = Tag.objects.create(user=self.user_a, name='Time Loop')
+        tag_mecha = Tag.objects.create(user=self.user_a, name='Mecha')
+
+        e1 = LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Starbound Loop',
+            current_uri='https://royalroad.com/ch1',
+            status=ReadingStatus.ACTIVE,
+            folder=folder_sf,
+        )
+        e1.tags.add(tag_loop)
+
+        e2 = LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Iron Titan',
+            current_uri='https://royalroad.com/ch2',
+            status=ReadingStatus.BINGE_READY,
+            folder=folder_sf,
+        )
+        e2.tags.add(tag_mecha)
+
+        LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Arcane Hold',
+            current_uri='https://royalroad.com/ch3',
+            status=ReadingStatus.ON_HOLD,
+            folder=folder_f,
+        )
+
+        LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Loose Story',
+            current_uri='https://royalroad.com/ch4',
+            status=ReadingStatus.COMPLETED,
+            folder=None,
+        )
+
+        self.client.force_login(self.user_a)
+
+        # Filter by Folder ID
+        r_folder = self.client.get(reverse('library:dashboard'), {'folder': str(folder_sf.pk)})
+        self.assertContains(r_folder, 'Starbound Loop')
+        self.assertContains(r_folder, 'Iron Titan')
+        self.assertNotContains(r_folder, 'Arcane Hold')
+        self.assertNotContains(r_folder, 'Loose Story')
+
+        # Filter by Unfiled
+        r_unfiled = self.client.get(reverse('library:dashboard'), {'folder': 'unfiled'})
+        self.assertContains(r_unfiled, 'Loose Story')
+        self.assertNotContains(r_unfiled, 'Starbound Loop')
+
+        # Filter by Tag slug
+        r_tag = self.client.get(reverse('library:dashboard'), {'tag': 'time-loop'})
+        self.assertContains(r_tag, 'Starbound Loop')
+        self.assertNotContains(r_tag, 'Iron Titan')
+
+        # Filter by ReadingStatus
+        r_status = self.client.get(
+            reverse('library:dashboard'),
+            {'status': ReadingStatus.BINGE_READY},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(r_status.status_code, 200)
+        self.assertContains(r_status, 'Iron Titan')
+        self.assertNotContains(r_status, 'Starbound Loop')
+
+        # Combined Folder + Status
+        r_combo = self.client.get(
+            reverse('library:dashboard'),
+            {'folder': str(folder_sf.pk), 'status': ReadingStatus.ACTIVE},
+        )
+        self.assertContains(r_combo, 'Starbound Loop')
+        self.assertNotContains(r_combo, 'Iron Titan')
+
+
+

@@ -112,3 +112,89 @@ class LibraryEntryForm(forms.ModelForm):
             entry.save()
             self.save_m2m()
         return entry
+
+
+class FolderForm(forms.ModelForm):
+    """User-scoped Folder creation and inline rename form."""
+
+    class Meta:
+        model = Folder
+        fields = ['name', 'color_hex']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': INPUT_CLASSES,
+                'placeholder': 'New folder name...',
+                'required': 'required',
+                'maxlength': '80',
+            }),
+            'color_hex': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'h-9 w-10 cursor-pointer rounded-lg border border-shelf-border bg-shelf-bg p-1',
+            }),
+        }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields['color_hex'].required = False
+
+    def clean_name(self):
+        name = (self.cleaned_data.get('name') or '').strip()
+        if not name:
+            raise forms.ValidationError('Folder name is required.')
+        if self.user is not None:
+            qs = Folder.objects.filter(user=self.user, name__iexact=name)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError('You already have a folder with that name.')
+        return name
+
+    def clean_color_hex(self):
+        color = (self.cleaned_data.get('color_hex') or '').strip()
+        return color if color.startswith('#') and len(color) == 7 else '#6366f1'
+
+
+class TagForm(forms.ModelForm):
+    """User-scoped Tag creation and inline rename form."""
+
+    class Meta:
+        model = Tag
+        fields = ['name', 'color_hex']
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': INPUT_CLASSES,
+                'placeholder': 'New tag name...',
+                'required': 'required',
+                'maxlength': '50',
+            }),
+            'color_hex': forms.TextInput(attrs={
+                'type': 'color',
+                'class': 'h-9 w-10 cursor-pointer rounded-lg border border-shelf-border bg-shelf-bg p-1',
+            }),
+        }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields['color_hex'].required = False
+
+    def clean_name(self):
+        from django.utils.text import slugify
+
+        name = (self.cleaned_data.get('name') or '').strip()
+        slug = slugify(name)
+        if not name or not slug:
+            raise forms.ValidationError('Please enter a valid tag name.')
+        if self.user is not None:
+            qs = Tag.objects.filter(user=self.user, slug=slug)
+            if self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError('You already have a tag with that name.')
+        return name
+
+    def clean_color_hex(self):
+        color = (self.cleaned_data.get('color_hex') or '').strip()
+        return color if color.startswith('#') and len(color) == 7 else '#6366f1'
+
