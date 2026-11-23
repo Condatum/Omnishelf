@@ -195,6 +195,14 @@
         {% block content %}{% endblock %}
     </main>
 
+    <!-- Shared Native Top-Layer Modal Dialog (modern-web-guidance: no redundant role/aria-modal) -->
+    <dialog id="omnishelf-modal"
+            closedby="any"
+            aria-labelledby="modal-heading"
+            class="m-auto w-[min(92vw,38rem)] max-h-[90dvh] overflow-y-auto rounded-2xl border border-shelf-border bg-shelf-surface p-0 text-slate-100 shadow-2xl">
+        <div id="modal-dialog-body"></div>
+    </dialog>
+
     <!-- Footer -->
     <footer class="border-t border-shelf-border bg-shelf-bg py-5 text-center text-xs text-slate-500">
         <div class="mx-auto max-w-7xl px-4">
@@ -202,6 +210,45 @@
         </div>
     </footer>
 
+    <script>
+        (function () {
+            const dialog = document.getElementById('omnishelf-modal');
+            const body = document.getElementById('modal-dialog-body');
+            if (!dialog || !body) return;
+
+            document.body.addEventListener('htmx:afterSwap', (event) => {
+                if (event.detail.target && event.detail.target.id === 'modal-dialog-body') {
+                    if (!dialog.open && body.innerHTML.trim() !== '') {
+                        dialog.showModal();
+                    }
+                }
+            });
+
+            document.body.addEventListener('closeModal', () => {
+                if (dialog.open) {
+                    dialog.close();
+                }
+            });
+
+            dialog.addEventListener('close', () => {
+                dialog.returnValue = '';
+                body.innerHTML = '';
+            });
+
+            // Modern Web Guidance fallback for browsers without native dialog closedby="any"
+            if (!('closedBy' in HTMLDialogElement.prototype)) {
+                const outside = (e) => {
+                    const r = dialog.getBoundingClientRect();
+                    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+                };
+                let pressedOutside = false;
+                dialog.addEventListener('pointerdown', (e) => { pressedOutside = outside(e); });
+                dialog.addEventListener('pointerup', (e) => {
+                    if (pressedOutside && outside(e)) dialog.close();
+                });
+            }
+        })();
+    </script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>
