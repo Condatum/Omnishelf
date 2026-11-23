@@ -122,8 +122,45 @@ class LibraryEntry(models.Model):
             self.source_domain = netloc
         super().save(*args, **kwargs)
 
+    @property
+    def cover_src(self) -> str:
+        """Return the highest-priority cover image URL (uploaded file > external URL)."""
+        if self.custom_cover_image:
+            try:
+                return self.custom_cover_image.url
+            except ValueError:
+                pass
+        return self.custom_cover_url or ''
+
+    @property
+    def fallback_gradient(self) -> str:
+        """Return a deterministic dark-mode gradient class for stories without cover art."""
+        gradients = (
+            'from-indigo-950 via-slate-900 to-violet-950',
+            'from-slate-900 via-cyan-950 to-indigo-950',
+            'from-emerald-950 via-slate-900 to-teal-950',
+            'from-rose-950 via-slate-900 to-indigo-950',
+            'from-amber-950 via-slate-900 to-stone-900',
+            'from-fuchsia-950 via-slate-900 to-indigo-950',
+        )
+        seed = sum(ord(ch) for ch in (self.custom_title or 'OmniShelf'))
+        return gradients[seed % len(gradients)]
+
+    @property
+    def status_badge_classes(self) -> str:
+        """Return high-contrast badge styling classes matching ReadingStatus."""
+        styles = {
+            ReadingStatus.ACTIVE: 'bg-emerald-500/15 text-emerald-300 ring-emerald-500/30',
+            ReadingStatus.BINGE_READY: 'bg-indigo-500/20 text-indigo-200 ring-indigo-400/40',
+            ReadingStatus.ON_HOLD: 'bg-amber-500/15 text-amber-300 ring-amber-500/30',
+            ReadingStatus.HIATUS: 'bg-rose-500/15 text-rose-300 ring-rose-500/30',
+            ReadingStatus.COMPLETED: 'bg-sky-500/15 text-sky-300 ring-sky-500/30',
+        }
+        return styles.get(self.status, 'bg-slate-700/60 text-slate-200 ring-slate-500/30')
+
     def __str__(self) -> str:
         return f'{self.custom_title} ({self.chapter_label or "No chapter"})'
+
 
 
 class ReadingSnapshot(models.Model):

@@ -1,0 +1,30 @@
+<div id="grand-library-grid-container">
+    {% if entries %}
+        <div class="grand-library-grid" role="list" aria-label="Tracked stories">
+            {% for entry in entries %}
+                <div role="listitem">
+                    {% include "library/partials/entry_card.html" with entry=entry %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="rounded-2xl border border-dashed border-shelf-border bg-shelf-surface/60 px-6 py-16 text-center">
+            <div class="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-400 ring-1 ring-inset ring-indigo-500/30">
+                <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                </svg>
+            </div>
+            <h2 class="mt-5 text-xl font-semibold text-white">Your Grand Library is empty</h2>
+            <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-slate-400">
+                Start tracking your active web novels, fanfiction, and serialized literature across any domain.
+                Save a direct chapter URI, set a custom cover and alias, and resume with a single click.
+            </p>
+            <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <a href="{% url 'accounts:settings' %}"
+                   class="inline-flex min-h-10 items-center gap-2 rounded-xl border border-shelf-border bg-shelf-elevated px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-indigo-500/50 hover:text-white">
+                    Import Existing JSON Backup
+                </a>
+            </div>
+        </div>
+    {% endif %}
+</div>
