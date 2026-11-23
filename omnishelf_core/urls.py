@@ -8,6 +8,7 @@ from library.views import home_view
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home_view, name='home'),
+    path('library/', include('library.urls')),
     path('accounts/', include('accounts.urls')),
 ]
 

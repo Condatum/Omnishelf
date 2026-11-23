@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Grand Library — OmniShelf{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <!-- Dashboard Header & Library Stats -->
+    <div class="mb-8 flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-widest text-indigo-400">Personal Reading Shelf</p>
+            <h1 class="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">Grand Library</h1>
+            <p class="mt-1 text-sm text-slate-400">
+                Direct Deep-Link pointers to your active chapters across every platform.
+            </p>
+        </div>
+
+        <dl class="grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label="Library summary statistics">
+            <div class="rounded-xl border border-shelf-border bg-shelf-surface px-4 py-2.5">
+                <dt class="text-[11px] font-medium uppercase tracking-wider text-slate-400">Total</dt>
+                <dd class="mt-0.5 text-lg font-bold text-white">{{ total_count }}</dd>
+            </div>
+            <div class="rounded-xl border border-shelf-border bg-shelf-surface px-4 py-2.5">
+                <dt class="text-[11px] font-medium uppercase tracking-wider text-emerald-400">Active</dt>
+                <dd class="mt-0.5 text-lg font-bold text-white">{{ active_count }}</dd>
+            </div>
+            <div class="rounded-xl border border-shelf-border bg-shelf-surface px-4 py-2.5">
+                <dt class="text-[11px] font-medium uppercase tracking-wider text-indigo-400">Binge-Ready</dt>
+                <dd class="mt-0.5 text-lg font-bold text-white">{{ binge_ready_count }}</dd>
+            </div>
+            <div class="rounded-xl border border-shelf-border bg-shelf-surface px-4 py-2.5">
+                <dt class="text-[11px] font-medium uppercase tracking-wider text-amber-400">On Hold</dt>
+                <dd class="mt-0.5 text-lg font-bold text-white">{{ on_hold_count }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <!-- Visual Story Grid -->
+    {% include "library/partials/entry_grid.html" %}
+</section>
+{% endblock %}
