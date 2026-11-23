@@ -449,4 +449,102 @@ class TaxonomySidebarAndFilteringTests(TestCase):
         self.assertNotContains(r_combo, 'Iron Titan')
 
 
+class OmniSearchTests(TestCase):
+    """Verify debounced HTMX Omni-Search multi-term Q queries, distinctness, and filter composition."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user_a = User.objects.create_user(username='search_a', password='StrongPassword123!')
+        cls.user_b = User.objects.create_user(username='search_b', password='StrongPassword123!')
+
+        cls.folder_sci = Folder.objects.create(user=cls.user_a, name='Sci-Fi')
+        cls.folder_fan = Folder.objects.create(user=cls.user_a, name='Fantasy')
+
+        cls.tag_loop = Tag.objects.create(user=cls.user_a, name='Time Loop')
+        cls.tag_loop_alt = Tag.objects.create(user=cls.user_a, name='Loop Mystery')
+        cls.tag_hfy = Tag.objects.create(user=cls.user_a, name='HFY')
+
+        cls.e1 = LibraryEntry.objects.create(
+            user=cls.user_a,
+            custom_title='Mother of Learning',
+            original_source_title='mol-raw-archive',
+            current_uri='https://www.royalroad.com/fiction/21220/chapter/42',
+            chapter_label='Ch. 42',
+            status=ReadingStatus.ACTIVE,
+            folder=cls.folder_fan,
+            notes='Stopped right before the Cyoria invasion finals.',
+        )
+        cls.e1.tags.add(cls.tag_loop, cls.tag_loop_alt)
+
+        cls.e2 = LibraryEntry.objects.create(
+            user=cls.user_a,
+            custom_title='First Contact',
+            original_source_title='r/HFY Post Series',
+            current_uri='https://www.reddit.com/r/HFY/comments/f94rak/ch_100',
+            chapter_label='Ch. 100',
+            status=ReadingStatus.BINGE_READY,
+            folder=cls.folder_sci,
+            notes='Great space opera arc on Reddit.',
+        )
+        cls.e2.tags.add(cls.tag_hfy)
+
+        # Other user's entry with matching domain/title must stay isolated
+        LibraryEntry.objects.create(
+            user=cls.user_b,
+            custom_title='Mother of Learning Private Copy',
+            current_uri='https://www.royalroad.com/fiction/21220/chapter/99',
+        )
+
+    def test_search_across_domain_original_title_notes_and_distinct_tags(self):
+        self.client.force_login(self.user_a)
+
+        # Domain search ("reddit")
+        r_reddit = self.client.get(reverse('library:omni_search'), {'q': 'reddit'}, HTTP_HX_REQUEST='true')
+        self.assertEqual(r_reddit.status_code, 200)
+        self.assertContains(r_reddit, 'First Contact')
+        self.assertNotContains(r_reddit, 'Mother of Learning')
+
+        # Original source title search
+        r_orig = self.client.get(reverse('library:omni_search'), {'q': 'mol-raw'}, HTTP_HX_REQUEST='true')
+        self.assertContains(r_orig, 'Mother of Learning')
+        self.assertNotContains(r_orig, 'First Contact')
+
+        # Distinctness: matching two tags containing "Loop" returns Mother of Learning exactly once
+        r_distinct = self.client.get(reverse('library:omni_search'), {'q': 'loop'})
+        self.assertEqual(r_distinct.context['entries'].count(), 1)
+        self.assertNotContains(r_distinct, 'Private Copy')
+
+    def test_multi_term_query_and_active_filter_combination(self):
+        self.client.force_login(self.user_a)
+
+        # Multi-term spanning domain ("royalroad") + note ("Cyoria")
+        r_multi = self.client.get(
+            reverse('library:omni_search'),
+            {'q': 'royalroad Cyoria'},
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertContains(r_multi, 'Mother of Learning')
+        self.assertNotContains(r_multi, 'First Contact')
+
+        # Combine query + non-matching status returns 0 entries
+        r_combo_empty = self.client.get(
+            reverse('library:omni_search'),
+            {'q': 'royalroad', 'status': ReadingStatus.BINGE_READY},
+        )
+        self.assertEqual(r_combo_empty.context['entries'].count(), 0)
+
+        # Combine query + matching folder + status returns exact match
+        r_combo_hit = self.client.get(
+            reverse('library:omni_search'),
+            {
+                'q': 'reddit space',
+                'folder': str(self.folder_sci.pk),
+                'status': ReadingStatus.BINGE_READY,
+            },
+        )
+        self.assertEqual(r_combo_hit.context['entries'].count(), 1)
+        self.assertContains(r_combo_hit, 'First Contact')
+
+
+
 

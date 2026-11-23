@@ -8,6 +8,7 @@ from .views import (
     folder_create_view,
     folder_delete_view,
     folder_rename_view,
+    omni_search_view,
     tag_create_view,
     tag_delete_view,
     tag_rename_view,
@@ -17,6 +18,7 @@ app_name = 'library'
 
 urlpatterns = [
     path('', GrandLibraryView.as_view(), name='dashboard'),
+    path('search/', omni_search_view, name='omni_search'),
     path('entries/new/', LibraryEntryCreateView.as_view(), name='entry_create'),
     path('entries/<uuid:pk>/edit/', LibraryEntryUpdateView.as_view(), name='entry_update'),
     path('entries/<uuid:pk>/delete/', LibraryEntryDeleteView.as_view(), name='entry_delete'),

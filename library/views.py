@@ -18,7 +18,7 @@ from .models import Folder, LibraryEntry, ReadingSnapshot, ReadingStatus, Tag
 
 
 def _extract_filter_params(request) -> dict:
-    """Read active status, folder, and tag filter parameters from query string or POST."""
+    """Read active status, folder, tag, and Omni-Search query parameters."""
     source = request.GET if request.method == 'GET' else request.POST
     status = (source.get('status') or '').strip().upper()
     if status not in ReadingStatus.values:
@@ -26,19 +26,22 @@ def _extract_filter_params(request) -> dict:
 
     folder_param = (source.get('folder') or '').strip()
     tag_slug = (source.get('tag') or '').strip()
+    query = (source.get('q') or '').strip()
     return {
         'active_status': status,
         'active_folder': folder_param,
         'active_tag': tag_slug,
+        'active_query': query,
     }
 
 
 def _get_user_library_context(user, filters: dict | None = None) -> dict:
-    """Build strictly user-scoped filtered entries, taxonomy sidebar data, and stats."""
+    """Build strictly user-scoped filtered entries, Omni-Search matches, sidebar data, and stats."""
     filters = filters or {}
     active_status = filters.get('active_status', '')
     active_folder = filters.get('active_folder', '')
     active_tag = filters.get('active_tag', '')
+    active_query = (filters.get('active_query') or '').strip()
 
     base_qs = LibraryEntry.objects.filter(user=user)
     entries = base_qs.select_related('folder').prefetch_related('tags')
@@ -65,9 +68,21 @@ def _get_user_library_context(user, filters: dict | None = None) -> dict:
     if active_tag:
         active_tag_obj = Tag.objects.filter(user=user, slug=active_tag).first()
         if active_tag_obj:
-            entries = entries.filter(tags=active_tag_obj).distinct()
+            entries = entries.filter(tags=active_tag_obj)
         else:
             active_tag = ''
+
+    if active_query:
+        for term in active_query.split():
+            entries = entries.filter(
+                Q(custom_title__icontains=term)
+                | Q(original_source_title__icontains=term)
+                | Q(tags__name__icontains=term)
+                | Q(source_domain__icontains=term)
+                | Q(notes__icontains=term)
+            )
+
+    entries = entries.distinct()
 
     stats = base_qs.aggregate(
         total_count=Count('id'),
@@ -95,7 +110,7 @@ def _get_user_library_context(user, filters: dict | None = None) -> dict:
         {'value': ReadingStatus.COMPLETED, 'label': 'Completed', 'count': stats['completed_count']},
     ]
 
-    has_active_filters = bool(active_status or active_folder or active_tag)
+    has_active_filters = bool(active_status or active_folder or active_tag or active_query)
 
     return {
         'entries': entries,
@@ -109,8 +124,30 @@ def _get_user_library_context(user, filters: dict | None = None) -> dict:
         'active_folder_obj': active_folder_obj,
         'active_tag': active_tag,
         'active_tag_obj': active_tag_obj,
+        'active_query': active_query,
         'has_active_filters': has_active_filters,
     }
+
+
+def _render_htmx_filter_fragments(request, context) -> HttpResponse:
+    """Return grid HTML plus OOB status tabs, taxonomy sidebar, and search hidden filter state."""
+    grid_html = render_to_string('library/partials/entry_grid.html', context, request=request)
+    tabs_html = render_to_string(
+        'library/partials/status_tabs.html',
+        {**context, 'oob': True},
+        request=request,
+    )
+    sidebar_html = render_to_string(
+        'library/partials/taxonomy_sidebar.html',
+        {**context, 'oob': True},
+        request=request,
+    )
+    hidden_filters_html = render_to_string(
+        'library/partials/omni_search_hidden_filters.html',
+        {**context, 'oob': True},
+        request=request,
+    )
+    return HttpResponse(grid_html + tabs_html + sidebar_html + hidden_filters_html)
 
 
 def _render_htmx_workspace_response(
@@ -147,7 +184,7 @@ def _render_htmx_workspace_response(
 
 
 class GrandLibraryView(LoginRequiredMixin, ListView):
-    """Render the authenticated user's Grand Library with dynamic taxonomy filtering."""
+    """Render the authenticated user's Grand Library with dynamic taxonomy & Omni-Search filtering."""
 
     model = LibraryEntry
     template_name = 'library/dashboard.html'
@@ -165,19 +202,18 @@ class GrandLibraryView(LoginRequiredMixin, ListView):
 
     def render_to_response(self, context, **response_kwargs):
         if self.request.htmx:
-            grid_html = render_to_string('library/partials/entry_grid.html', context, request=self.request)
-            tabs_html = render_to_string(
-                'library/partials/status_tabs.html',
-                {**context, 'oob': True},
-                request=self.request,
-            )
-            sidebar_html = render_to_string(
-                'library/partials/taxonomy_sidebar.html',
-                {**context, 'oob': True},
-                request=self.request,
-            )
-            return HttpResponse(grid_html + tabs_html + sidebar_html)
+            return _render_htmx_filter_fragments(self.request, context)
         return super().render_to_response(context, **response_kwargs)
+
+
+@login_required
+def omni_search_view(request):
+    """Real-time HTMX Omni-Search endpoint combining query text with Folder/Tag/Status filters."""
+    filters = _extract_filter_params(request)
+    context = _get_user_library_context(request.user, filters=filters)
+    if request.htmx:
+        return _render_htmx_filter_fragments(request, context)
+    return render(request, 'library/dashboard.html', context)
 
 
 class LibraryEntryCreateView(LoginRequiredMixin, CreateView):
