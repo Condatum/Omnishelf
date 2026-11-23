@@ -182,3 +182,49 @@ class ReadingSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f'{self.entry.custom_title} @ {self.chapter_label or self.uri}'
+
+
+class UtilityRating(models.TextChoices):
+    """Usability study utility rating scale for Objective 5 (60%+ High Utility target)."""
+
+    HIGH = 'HIGH', 'High Utility'
+    MODERATE = 'MODERATE', 'Moderate Utility'
+    LOW = 'LOW', 'Low Utility'
+
+
+class UsabilityMetric(models.Model):
+    """Lightweight UX validation telemetry for session-start latency and usability study ratings."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='usability_metrics',
+    )
+    entry = models.ForeignKey(
+        LibraryEntry,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='usability_metrics',
+    )
+    session_start_to_resume_ms = models.PositiveIntegerField(null=True, blank=True)
+    utility_rating = models.CharField(
+        max_length=16,
+        choices=UtilityRating.choices,
+        blank=True,
+    )
+    feedback_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self) -> str:
+        parts = [self.user.username]
+        if self.utility_rating:
+            parts.append(self.get_utility_rating_display())
+        if self.session_start_to_resume_ms is not None:
+            parts.append(f'{self.session_start_to_resume_ms}ms')
+        return ' — '.join(parts)
+

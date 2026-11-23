@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}UX Validation Telemetry — OmniShelf{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+    <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+            <p class="text-xs font-semibold uppercase tracking-widest text-indigo-400">Objective 5 · Usability Study</p>
+            <h1 class="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">UX Validation Telemetry</h1>
+            <p class="mt-1 text-sm text-slate-400">
+                Tracking session-start latency savings and live High Utility ratings (60%+ target across 10–15 active readers).
+            </p>
+        </div>
+
+        <a href="{% url 'usability_feedback' %}?from_metrics_page=1"
+           hx-get="{% url 'usability_feedback' %}?from_metrics_page=1"
+           hx-target="#modal-dialog-body"
+           hx-swap="innerHTML"
+           class="inline-flex min-h-10 items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500">
+            Submit Study Rating
+        </a>
+    </div>
+
+    {% include "library/partials/ux_metrics_summary.html" %}
+</section>
+{% endblock %}

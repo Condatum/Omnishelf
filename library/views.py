@@ -4,8 +4,8 @@ import uuid
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Count, Q
-from django.http import HttpResponse
+from django.db.models import Avg, Count, Q
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
@@ -13,8 +13,8 @@ from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from .forms import FolderForm, LibraryEntryForm, TagForm
-from .models import Folder, LibraryEntry, ReadingSnapshot, ReadingStatus, Tag
+from .forms import FolderForm, LibraryEntryForm, TagForm, UsabilityFeedbackForm
+from .models import Folder, LibraryEntry, ReadingSnapshot, ReadingStatus, Tag, UsabilityMetric, UtilityRating
 
 
 def _extract_filter_params(request) -> dict:
@@ -480,6 +480,173 @@ def tag_delete_view(request, pk):
         )
     messages.info(request, f'Deleted tag "#{name}".')
     return redirect('library:dashboard')
+
+
+MANUAL_BASELINE_RESUME_SECONDS = 45.0
+
+
+def _compute_ux_metrics_summary(user) -> dict:
+    """Compute anonymized study cohort aggregates alongside strictly user-scoped personal telemetry."""
+    rated_qs = UsabilityMetric.objects.exclude(utility_rating='')
+    rating_agg = rated_qs.aggregate(
+        total_ratings=Count('id'),
+        high_count=Count('id', filter=Q(utility_rating=UtilityRating.HIGH)),
+        moderate_count=Count('id', filter=Q(utility_rating=UtilityRating.MODERATE)),
+        low_count=Count('id', filter=Q(utility_rating=UtilityRating.LOW)),
+        participant_count=Count('user', distinct=True),
+    )
+    total_ratings = rating_agg['total_ratings'] or 0
+    high_count = rating_agg['high_count'] or 0
+    moderate_count = rating_agg['moderate_count'] or 0
+    low_count = rating_agg['low_count'] or 0
+    high_utility_pct = round((high_count / total_ratings) * 100, 1) if total_ratings else 0.0
+    moderate_pct = round((moderate_count / total_ratings) * 100, 1) if total_ratings else 0.0
+    low_pct = round((low_count / total_ratings) * 100, 1) if total_ratings else 0.0
+
+    latency_agg = UsabilityMetric.objects.filter(
+        session_start_to_resume_ms__isnull=False,
+    ).aggregate(
+        avg_ms=Avg('session_start_to_resume_ms'),
+        session_count=Count('id'),
+    )
+    avg_resume_ms = round(latency_agg['avg_ms']) if latency_agg['avg_ms'] is not None else None
+    avg_resume_seconds = round(avg_resume_ms / 1000.0, 2) if avg_resume_ms is not None else None
+    time_saved_seconds = (
+        round(max(0.0, MANUAL_BASELINE_RESUME_SECONDS - avg_resume_seconds), 2)
+        if avg_resume_seconds is not None
+        else None
+    )
+
+    # Strictly user-scoped personal telemetry records (never leaks another user's notes or entries)
+    personal_qs = UsabilityMetric.objects.filter(user=user).select_related('entry')
+    personal_latency = personal_qs.filter(session_start_to_resume_ms__isnull=False).aggregate(
+        avg_ms=Avg('session_start_to_resume_ms'),
+        count=Count('id'),
+    )
+    personal_avg_seconds = (
+        round(personal_latency['avg_ms'] / 1000.0, 2)
+        if personal_latency['avg_ms'] is not None
+        else None
+    )
+
+    return {
+        'cohort_total_ratings': total_ratings,
+        'cohort_high_count': high_count,
+        'cohort_moderate_count': moderate_count,
+        'cohort_low_count': low_count,
+        'cohort_high_utility_pct': high_utility_pct,
+        'cohort_moderate_pct': moderate_pct,
+        'cohort_low_pct': low_pct,
+        'cohort_meets_target': total_ratings > 0 and high_utility_pct >= 60.0,
+        'cohort_participant_count': rating_agg['participant_count'] or 0,
+        'cohort_avg_resume_ms': avg_resume_ms,
+        'cohort_avg_resume_seconds': avg_resume_seconds,
+        'cohort_session_count': latency_agg['session_count'] or 0,
+        'cohort_time_saved_seconds': time_saved_seconds,
+        'manual_baseline_seconds': MANUAL_BASELINE_RESUME_SECONDS,
+        'personal_metrics': personal_qs[:20],
+        'personal_avg_seconds': personal_avg_seconds,
+        'personal_session_count': personal_latency['count'] or 0,
+    }
+
+
+@login_required
+def ux_metrics_dashboard_view(request):
+    """Display session-start latency savings and live High Utility usability study metrics."""
+    context = _compute_ux_metrics_summary(request.user)
+    return render(request, 'library/ux_metrics.html', context)
+
+
+@login_required
+@require_POST
+def track_resume_latency_view(request):
+    """Record elapsed milliseconds from dashboard load to clicking Deep-Link Resume."""
+    raw_ms = request.POST.get('session_start_to_resume_ms')
+    entry_id = request.POST.get('entry_id')
+
+    if raw_ms is None and request.body:
+        try:
+            body_data = json.loads(request.body.decode('utf-8'))
+            raw_ms = body_data.get('session_start_to_resume_ms')
+            entry_id = body_data.get('entry_id')
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return JsonResponse({'error': 'Invalid payload'}, status=400)
+
+    try:
+        elapsed_ms = int(round(float(raw_ms)))
+    except (TypeError, ValueError):
+        return JsonResponse({'error': 'Invalid session_start_to_resume_ms value'}, status=400)
+
+    elapsed_ms = max(0, min(elapsed_ms, 600_000))
+
+    entry = None
+    if entry_id:
+        try:
+            entry_uuid = uuid.UUID(str(entry_id))
+            entry = LibraryEntry.objects.filter(user=request.user, pk=entry_uuid).first()
+        except ValueError:
+            entry = None
+
+    metric = UsabilityMetric.objects.create(
+        user=request.user,
+        entry=entry,
+        session_start_to_resume_ms=elapsed_ms,
+    )
+    return JsonResponse({
+        'id': str(metric.pk),
+        'session_start_to_resume_ms': metric.session_start_to_resume_ms,
+    }, status=201)
+
+
+@login_required
+def usability_feedback_view(request):
+    """Render and process the Usability Study Feedback Modal (High/Moderate/Low Utility)."""
+    if request.method == 'POST':
+        form = UsabilityFeedbackForm(request.POST)
+        if form.is_valid():
+            metric = form.save(commit=False)
+            metric.user = request.user
+            raw_ms = request.POST.get('session_start_to_resume_ms')
+            if raw_ms:
+                try:
+                    metric.session_start_to_resume_ms = max(0, min(int(round(float(raw_ms))), 600_000))
+                except ValueError:
+                    pass
+            metric.save()
+            if request.htmx:
+                if request.POST.get('from_metrics_page') == '1':
+                    context = _compute_ux_metrics_summary(request.user)
+                    html = render_to_string(
+                        'library/partials/ux_metrics_summary.html',
+                        context,
+                        request=request,
+                    )
+                    response = HttpResponse(html)
+                else:
+                    response = HttpResponse(status=204)
+                response['HX-Trigger'] = json.dumps({
+                    'closeModal': True,
+                    'show-toast': {
+                        'message': f'Thank you! Recorded "{metric.get_utility_rating_display()}" usability feedback.',
+                        'level': 'success',
+                    },
+                })
+                return response
+            messages.success(
+                request,
+                f'Thank you! Recorded "{metric.get_utility_rating_display()}" usability feedback.',
+            )
+            return redirect('ux_metrics')
+    else:
+        form = UsabilityFeedbackForm()
+
+    context = {
+        'form': form,
+        'from_metrics_page': request.GET.get('from_metrics_page') == '1',
+    }
+    if request.htmx:
+        return render(request, 'library/partials/usability_feedback_modal.html', context)
+    return render(request, 'library/usability_feedback_page.html', context)
 
 
 def home_view(request):

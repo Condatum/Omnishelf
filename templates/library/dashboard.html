@@ -25,6 +25,13 @@
                 </svg>
                 <span>Folders &amp; Tags</span>
             </button>
+            <a href="{% url 'usability_feedback' %}"
+               hx-get="{% url 'usability_feedback' %}"
+               hx-target="#modal-dialog-body"
+               hx-swap="innerHTML"
+               class="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-shelf-border bg-shelf-surface px-3.5 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-indigo-500/40 hover:text-white">
+                <span>Study Feedback</span>
+            </a>
             <a href="{% url 'library:entry_create' %}"
                hx-get="{% url 'library:entry_create' %}"
                hx-target="#modal-dialog-body"
@@ -66,4 +73,31 @@
         </div>
     </div>
 </section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    (function () {
+        const dashboardLoadedAt = performance.now();
+        const trackUrl = "{% url 'track_resume_latency' %}";
+        const csrfToken = "{{ csrf_token }}";
+
+        document.addEventListener('click', (event) => {
+            const link = event.target.closest('a[data-deep-link-resume="true"]');
+            if (!link) return;
+            const elapsedMs = Math.max(0, Math.round(performance.now() - dashboardLoadedAt));
+            const entryId = link.getAttribute('data-entry-id') || '';
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', csrfToken);
+            formData.append('session_start_to_resume_ms', String(elapsedMs));
+            if (entryId) formData.append('entry_id', entryId);
+
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(trackUrl, formData);
+            } else {
+                fetch(trackUrl, { method: 'POST', body: formData, keepalive: true }).catch(() => {});
+            }
+        });
+    })();
+</script>
 {% endblock %}

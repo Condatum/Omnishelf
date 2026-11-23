@@ -1,0 +1,163 @@
+<div id="ux-metrics-summary" class="space-y-8">
+    <!-- Objective 5 KPI Cards -->
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-5 shadow-lg">
+            <p class="text-xs font-semibold uppercase tracking-wider text-indigo-400">High Utility Rating</p>
+            <div class="mt-2 flex items-baseline gap-2">
+                <span class="text-3xl font-bold text-white">{{ cohort_high_utility_pct }}%</span>
+                {% if cohort_meets_target %}
+                    <span class="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
+                        Meets 60%+ Goal
+                    </span>
+                {% else %}
+                    <span class="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300 ring-1 ring-inset ring-amber-500/30">
+                        Target: 60%+
+                    </span>
+                {% endif %}
+            </div>
+            <p class="mt-1.5 text-xs text-slate-400">
+                {{ cohort_high_count }} of {{ cohort_total_ratings }} ratings ({{ cohort_participant_count }} readers)
+            </p>
+        </div>
+
+        <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-5 shadow-lg">
+            <p class="text-xs font-semibold uppercase tracking-wider text-emerald-400">Avg. Session Start</p>
+            <p class="mt-2 text-3xl font-bold text-white">
+                {% if cohort_avg_resume_seconds is not None %}
+                    {{ cohort_avg_resume_seconds }}s
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400">
+                Dashboard load &rarr; Deep-Link Resume ({{ cohort_session_count }} launches)
+            </p>
+        </div>
+
+        <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-5 shadow-lg">
+            <p class="text-xs font-semibold uppercase tracking-wider text-sky-400">Avg. Time Saved</p>
+            <p class="mt-2 text-3xl font-bold text-white">
+                {% if cohort_time_saved_seconds is not None %}
+                    {{ cohort_time_saved_seconds }}s
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400">
+                vs. {{ manual_baseline_seconds|floatformat:0 }}s manual tab/bookmark hunting baseline
+            </p>
+        </div>
+
+        <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-5 shadow-lg">
+            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Your Avg. Resume</p>
+            <p class="mt-2 text-3xl font-bold text-white">
+                {% if personal_avg_seconds is not None %}
+                    {{ personal_avg_seconds }}s
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </p>
+            <p class="mt-1.5 text-xs text-slate-400">
+                Across {{ personal_session_count }} of your Deep-Link sessions
+            </p>
+        </div>
+    </div>
+
+    <!-- High Utility Rubric Distribution -->
+    <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-6 shadow-lg">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h2 class="text-base font-semibold text-white">Utility Rating Breakdown (60% High Utility Rubric)</h2>
+                <p class="mt-0.5 text-xs text-slate-400">
+                    Anonymized study aggregates across participating readers (zero private stories or cross-user notes exposed).
+                </p>
+            </div>
+            <span class="text-xs font-semibold text-indigo-300">Goal Threshold: 60.0%</span>
+        </div>
+
+        <div class="mt-5 space-y-4">
+            <div>
+                <div class="mb-1 flex justify-between text-xs font-medium">
+                    <span class="text-emerald-300">High Utility</span>
+                    <span class="text-slate-300">{{ cohort_high_count }} ({{ cohort_high_utility_pct }}%)</span>
+                </div>
+                <div class="h-3 w-full overflow-hidden rounded-full bg-shelf-bg">
+                    <div class="h-full rounded-full bg-emerald-500 transition-all" style="width: {{ cohort_high_utility_pct }}%;"></div>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-1 flex justify-between text-xs font-medium">
+                    <span class="text-amber-300">Moderate Utility</span>
+                    <span class="text-slate-300">{{ cohort_moderate_count }} ({{ cohort_moderate_pct }}%)</span>
+                </div>
+                <div class="h-3 w-full overflow-hidden rounded-full bg-shelf-bg">
+                    <div class="h-full rounded-full bg-amber-500 transition-all" style="width: {{ cohort_moderate_pct }}%;"></div>
+                </div>
+            </div>
+
+            <div>
+                <div class="mb-1 flex justify-between text-xs font-medium">
+                    <span class="text-rose-300">Low Utility</span>
+                    <span class="text-slate-300">{{ cohort_low_count }} ({{ cohort_low_pct }}%)</span>
+                </div>
+                <div class="h-3 w-full overflow-hidden rounded-full bg-shelf-bg">
+                    <div class="h-full rounded-full bg-rose-500 transition-all" style="width: {{ cohort_low_pct }}%;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User-Scoped Personal Telemetry Log -->
+    <div class="rounded-2xl border border-shelf-border bg-shelf-surface p-6 shadow-lg">
+        <h2 class="text-base font-semibold text-white">Your Recent Telemetry &amp; Study Submissions</h2>
+        <p class="mt-0.5 text-xs text-slate-400">
+            Strictly scoped to your account ({{ user.username }}).
+        </p>
+
+        {% if personal_metrics %}
+            <div class="mt-4 overflow-x-auto">
+                <table class="min-w-full divide-y divide-shelf-border text-left text-xs">
+                    <thead>
+                        <tr class="text-slate-400">
+                            <th scope="col" class="py-2.5 pr-4 font-semibold">Timestamp</th>
+                            <th scope="col" class="py-2.5 pr-4 font-semibold">Story</th>
+                            <th scope="col" class="py-2.5 pr-4 font-semibold">Session-Start Latency</th>
+                            <th scope="col" class="py-2.5 pr-4 font-semibold">Utility Rating</th>
+                            <th scope="col" class="py-2.5 font-semibold">Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-shelf-border/60 text-slate-200">
+                        {% for item in personal_metrics %}
+                            <tr>
+                                <td class="whitespace-nowrap py-2.5 pr-4 text-slate-400">{{ item.created_at|date:"M j, Y H:i" }}</td>
+                                <td class="py-2.5 pr-4">{{ item.entry.custom_title|default:"General Study Feedback" }}</td>
+                                <td class="whitespace-nowrap py-2.5 pr-4">
+                                    {% if item.session_start_to_resume_ms is not None %}
+                                        {{ item.session_start_to_resume_ms }} ms
+                                    {% else %}
+                                        &mdash;
+                                    {% endif %}
+                                </td>
+                                <td class="whitespace-nowrap py-2.5 pr-4">
+                                    {% if item.utility_rating %}
+                                        <span class="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-semibold text-indigo-200">
+                                            {{ item.get_utility_rating_display }}
+                                        </span>
+                                    {% else %}
+                                        &mdash;
+                                    {% endif %}
+                                </td>
+                                <td class="py-2.5 text-slate-400">{{ item.feedback_notes|default:"—" }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="mt-4 rounded-xl border border-dashed border-shelf-border p-6 text-center text-xs text-slate-400">
+                No personal session-start telemetry recorded yet. Click <strong>Deep-Link Resume</strong> on any story card or submit a usability rating above.
+            </p>
+        {% endif %}
+    </div>
+</div>

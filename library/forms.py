@@ -198,3 +198,34 @@ class TagForm(forms.ModelForm):
         color = (self.cleaned_data.get('color_hex') or '').strip()
         return color if color.startswith('#') and len(color) == 7 else '#6366f1'
 
+
+class UsabilityFeedbackForm(forms.ModelForm):
+    """Usability study feedback widget for recording Utility Ratings and qualitative notes."""
+
+    utility_rating = forms.ChoiceField(
+        choices=[],
+        required=True,
+        widget=forms.RadioSelect,
+        label='How useful is OmniShelf for resuming your serialized reads?',
+    )
+
+    class Meta:
+        from .models import UsabilityMetric
+
+        model = UsabilityMetric
+        fields = ['utility_rating', 'feedback_notes']
+        widgets = {
+            'feedback_notes': forms.Textarea(attrs={
+                'class': INPUT_CLASSES,
+                'rows': 3,
+                'placeholder': 'What saved you the most time when resuming chapters?',
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        from .models import UtilityRating
+
+        super().__init__(*args, **kwargs)
+        self.fields['utility_rating'].choices = UtilityRating.choices
+
+
