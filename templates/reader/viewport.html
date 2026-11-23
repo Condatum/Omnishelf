@@ -8,7 +8,11 @@
          iframeLoaded: false,
          showFallbackHint: false,
          showNotes: false,
-         reloadCount: 0,
+         historyOpen: false,
+         uri: '{{ entry.current_uri|escapejs }}',
+         chapterLabel: '{{ entry.chapter_label|escapejs }}',
+         notes: '{{ entry.notes|escapejs }}',
+         clipboardNotice: '',
          init() {
              setTimeout(() => {
                  if (!this.iframeLoaded) {
@@ -16,13 +20,57 @@
                  }
              }, 4500);
          },
+         bumpChapter() {
+             const cleaned = (this.chapterLabel || '').trim();
+             if (!cleaned) {
+                 this.chapterLabel = 'Ch. 1';
+                 return;
+             }
+             const match = cleaned.match(/(\d+)(?!.*\d)/);
+             if (!match) {
+                 this.chapterLabel = cleaned + ' 2';
+                 return;
+             }
+             const numStr = match[1];
+             const nextNum = parseInt(numStr, 10) + 1;
+             const formatted = (numStr.startsWith('0') && numStr.length > 1)
+                 ? String(nextNum).padStart(numStr.length, '0')
+                 : String(nextNum);
+             this.chapterLabel = cleaned.slice(0, match.index) + formatted + cleaned.slice(match.index + numStr.length);
+         },
+         async pasteFromClipboard() {
+             try {
+                 const text = (await navigator.clipboard.readText()).trim();
+                 if (text) {
+                     this.uri = text;
+                     this.clipboardNotice = 'Pasted URL';
+                 } else {
+                     this.clipboardNotice = 'Clipboard empty';
+                 }
+             } catch {
+                 this.clipboardNotice = 'Clipboard blocked — paste with Ctrl/Cmd+V';
+             }
+             setTimeout(() => { this.clipboardNotice = ''; }, 3000);
+         },
+         applySnapshotUpdate(detail) {
+             if (!detail) return;
+             const prevUri = this.uri;
+             if (detail.uri) this.uri = detail.uri;
+             if (typeof detail.chapter_label === 'string') this.chapterLabel = detail.chapter_label;
+             if (typeof detail.notes === 'string') this.notes = detail.notes;
+             const frame = this.$refs.readerFrame;
+             if (frame && detail.uri && detail.uri !== prevUri) {
+                 this.iframeLoaded = false;
+                 frame.setAttribute('data-current-uri', detail.uri);
+                 frame.src = detail.uri;
+             }
+         },
          reloadViewport() {
              this.iframeLoaded = false;
              this.showFallbackHint = false;
-             this.reloadCount += 1;
              const frame = this.$refs.readerFrame;
              if (frame) {
-                 frame.src = frame.getAttribute('data-current-uri');
+                 frame.src = this.uri;
              }
              setTimeout(() => {
                  if (!this.iframeLoaded) {
@@ -30,7 +78,10 @@
                  }
              }, 4500);
          }
-     }">
+     }"
+     @snapshot-frozen.window="applySnapshotUpdate($event.detail)"
+     @snapshotFrozen.window="applySnapshotUpdate($event.detail)">
+
     <!-- Unified Reader HUD Bar -->
     <section aria-label="Reader Heads-Up Display"
              class="border-b border-shelf-border bg-shelf-surface/95 px-4 py-3 shadow-md backdrop-blur-md sm:px-6">
@@ -65,15 +116,16 @@
                  aria-label="Reader viewport controls"
                  aria-controls="omnishelf-reader-frame"
                  class="flex flex-wrap items-center gap-2">
-                {% if entry.notes %}
-                    <button type="button"
-                            @click="showNotes = !showNotes"
-                            :aria-expanded="showNotes.toString()"
-                            aria-controls="reader-context-notes"
-                            class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-shelf-border bg-shelf-bg px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-indigo-500/40 hover:text-white">
-                        <span>Context Notes</span>
-                    </button>
-                {% endif %}
+                <button type="button"
+                        @click="historyOpen = !historyOpen"
+                        :aria-expanded="historyOpen.toString()"
+                        aria-controls="snapshot-history-drawer"
+                        class="inline-flex min-h-9 items-center gap-1.5 rounded-xl border border-shelf-border bg-shelf-bg px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:border-indigo-500/40 hover:text-white">
+                    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>History (<span id="hud-history-count">{{ snapshots|length }}</span>)</span>
+                </button>
 
                 <button type="button"
                         @click="reloadViewport()"
@@ -106,15 +158,100 @@
             </div>
         </div>
 
-        <!-- Optional Context Notes Reveal (Anti-Amnesia) -->
-        {% if entry.notes %}
-            <div id="reader-context-notes"
-                 x-show="showNotes"
-                 x-cloak
-                 class="mx-auto mt-3 max-w-7xl rounded-xl border border-indigo-500/25 bg-indigo-500/10 px-4 py-2.5 text-xs leading-relaxed text-indigo-100">
-                <strong class="font-semibold text-indigo-200">Last Session Note:</strong> {{ entry.notes }}
+        <!-- State-Capture ("Freeze Snapshot") Control Bar -->
+        <form method="post"
+              action="{% url 'reader:freeze_snapshot' entry.pk %}"
+              hx-post="{% url 'reader:freeze_snapshot' entry.pk %}"
+              hx-target="#freeze-snapshot-status"
+              hx-swap="outerHTML"
+              aria-label="Freeze reading snapshot"
+              class="mx-auto mt-3 flex max-w-7xl flex-wrap items-center gap-2 rounded-xl border border-shelf-border bg-shelf-bg/75 p-2.5">
+            {% csrf_token %}
+            <input type="hidden" name="source" value="hud">
+
+            <div class="flex min-w-[220px] flex-1 items-center gap-1.5">
+                <label for="hud-snapshot-uri" class="sr-only">Current chapter URI</label>
+                <input type="url"
+                       id="hud-snapshot-uri"
+                       name="uri"
+                       x-model="uri"
+                       required
+                       autocorrect="off"
+                       autocapitalize="none"
+                       spellcheck="false"
+                       placeholder="Paste updated chapter URL..."
+                       class="min-h-9 min-w-0 flex-1 rounded-lg border border-shelf-border bg-shelf-surface px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500">
+                <button type="button"
+                        @click="pasteFromClipboard()"
+                        title="Paste URL from clipboard"
+                        class="inline-flex min-h-9 shrink-0 items-center rounded-lg border border-shelf-border bg-shelf-elevated px-2.5 py-1.5 text-xs font-medium text-slate-200 transition-colors hover:border-indigo-500/40 hover:text-white">
+                    Paste URI
+                </button>
             </div>
-        {% endif %}
+
+            <div class="flex items-center gap-1.5">
+                <label for="hud-snapshot-chapter" class="sr-only">Chapter label</label>
+                <input type="text"
+                       id="hud-snapshot-chapter"
+                       name="chapter_label"
+                       x-model="chapterLabel"
+                       placeholder="Ch. 42"
+                       class="min-h-9 w-28 rounded-lg border border-shelf-border bg-shelf-surface px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500 sm:w-32">
+                <button type="button"
+                        @click="bumpChapter()"
+                        title="Increment chapter label by 1"
+                        class="inline-flex min-h-9 shrink-0 items-center rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1.5 text-xs font-semibold text-indigo-200 transition-colors hover:bg-indigo-500/25">
+                    +1 Chapter
+                </button>
+            </div>
+
+            <div class="min-w-[160px] flex-1 sm:max-w-xs">
+                <label for="hud-snapshot-notes" class="sr-only">Quick context note</label>
+                <input type="text"
+                       id="hud-snapshot-notes"
+                       name="notes"
+                       x-model="notes"
+                       placeholder="Quick context note..."
+                       class="min-h-9 w-full rounded-lg border border-shelf-border bg-shelf-surface px-2.5 py-1.5 text-xs text-slate-100 placeholder-slate-500">
+            </div>
+
+            <button type="submit"
+                    class="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-500">
+                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
+                </svg>
+                <span>Freeze Snapshot</span>
+            </button>
+
+            <span x-show="clipboardNotice" x-cloak role="status" class="text-xs text-indigo-300" x-text="clipboardNotice"></span>
+            {% include "reader/partials/freeze_confirmation.html" %}
+        </form>
+
+        <!-- Collapsible Snapshot History & URI Rollback Drawer -->
+        <aside id="snapshot-history-drawer"
+               x-show="historyOpen"
+               x-cloak
+               x-transition
+               aria-label="Snapshot URI history drawer"
+               class="mx-auto mt-3 max-w-7xl rounded-xl border border-shelf-border bg-shelf-elevated/90 p-4 shadow-xl">
+            <div class="mb-3 flex items-center justify-between">
+                <div>
+                    <h2 class="text-sm font-semibold text-white">Snapshot History &amp; URI Rollback</h2>
+                    <p class="text-xs text-slate-400">
+                        Every frozen checkpoint is preserved immutably so broken links or site restructures never erase your progress.
+                    </p>
+                </div>
+                <button type="button"
+                        @click="historyOpen = false"
+                        aria-label="Close Snapshot History drawer"
+                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-shelf-bg hover:text-white">
+                    &times;
+                </button>
+            </div>
+            <div class="max-h-64 overflow-y-auto pr-1">
+                {% include "reader/partials/snapshot_history_list.html" %}
+            </div>
+        </aside>
 
         <!-- X-Frame-Options / Cloudflare Anti-Bot Fallback Banner -->
         <div id="xframe-fallback-banner"
@@ -127,11 +264,11 @@
                 OmniShelf never strips security headers or scrapes pages — launch directly in a new tab instead.
             </p>
             <div class="flex items-center gap-2">
-                <a href="{{ entry.current_uri }}"
+                <a :href="uri"
                    target="_blank"
                    rel="noopener noreferrer"
                    class="inline-flex min-h-8 items-center rounded-lg bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-950 hover:bg-amber-400">
-                    Open {{ entry.source_domain|default:"Chapter" }} in New Tab
+                    Open in New Tab
                 </a>
                 <button type="button"
                         @click="showFallbackHint = false"
@@ -157,7 +294,7 @@
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                 referrerpolicy="no-referrer-when-downgrade"
                 @load="iframeLoaded = true"
-                class="block h-[calc(100dvh-9.5rem)] w-full border-0 bg-white">
+                class="block h-[calc(100dvh-13rem)] w-full border-0 bg-white">
         </iframe>
     </div>
 </div>
