@@ -6,8 +6,8 @@
         <h2 class="mb-2 px-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400">Shelf View</h2>
         <ul class="space-y-1">
             <li>
-                <a href="{% url 'library:dashboard' %}{% if active_status %}?status={{ active_status }}{% endif %}"
-                   hx-get="{% url 'library:dashboard' %}{% if active_status %}?status={{ active_status }}{% endif %}"
+                <a href="{% url 'library:dashboard' %}?{% if active_status %}status={{ active_status }}{% endif %}{% if active_query %}{% if active_status %}&amp;{% endif %}q={{ active_query|urlencode }}{% endif %}"
+                   hx-get="{% url 'library:dashboard' %}?{% if active_status %}status={{ active_status }}{% endif %}{% if active_query %}{% if active_status %}&amp;{% endif %}q={{ active_query|urlencode }}{% endif %}"
                    hx-target="#grand-library-grid-container"
                    hx-swap="outerHTML"
                    hx-push-url="true"
@@ -18,8 +18,8 @@
                 </a>
             </li>
             <li>
-                <a href="{% url 'library:dashboard' %}?folder=unfiled{% if active_status %}&amp;status={{ active_status }}{% endif %}"
-                   hx-get="{% url 'library:dashboard' %}?folder=unfiled{% if active_status %}&amp;status={{ active_status }}{% endif %}"
+                <a href="{% url 'library:dashboard' %}?folder=unfiled{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
+                   hx-get="{% url 'library:dashboard' %}?folder=unfiled{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
                    hx-target="#grand-library-grid-container"
                    hx-swap="outerHTML"
                    hx-push-url="true"
@@ -43,8 +43,8 @@
             {% for folder in folders %}
                 <li x-data="{ editing: false }" class="rounded-xl border border-transparent transition-colors {% if active_folder == folder.pk|stringformat:'s' %}bg-indigo-600/20 ring-1 ring-inset ring-indigo-500/30{% else %}hover:bg-shelf-elevated/70{% endif %}">
                     <div x-show="!editing" class="flex min-h-9 items-center gap-1 px-2.5 py-1">
-                        <a href="{% url 'library:dashboard' %}?folder={{ folder.pk }}{% if active_status %}&amp;status={{ active_status }}{% endif %}"
-                           hx-get="{% url 'library:dashboard' %}?folder={{ folder.pk }}{% if active_status %}&amp;status={{ active_status }}{% endif %}"
+                        <a href="{% url 'library:dashboard' %}?folder={{ folder.pk }}{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
+                           hx-get="{% url 'library:dashboard' %}?folder={{ folder.pk }}{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
                            hx-target="#grand-library-grid-container"
                            hx-swap="outerHTML"
                            hx-push-url="true"
@@ -153,8 +153,8 @@
             {% for tag in tags %}
                 <li x-data="{ editing: false }" class="rounded-xl border border-transparent transition-colors {% if active_tag == tag.slug %}bg-indigo-600/20 ring-1 ring-inset ring-indigo-500/30{% else %}hover:bg-shelf-elevated/70{% endif %}">
                     <div x-show="!editing" class="flex min-h-9 items-center gap-1 px-2.5 py-1">
-                        <a href="{% url 'library:dashboard' %}?tag={{ tag.slug }}{% if active_status %}&amp;status={{ active_status }}{% endif %}"
-                           hx-get="{% url 'library:dashboard' %}?tag={{ tag.slug }}{% if active_status %}&amp;status={{ active_status }}{% endif %}"
+                        <a href="{% url 'library:dashboard' %}?tag={{ tag.slug }}{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
+                           hx-get="{% url 'library:dashboard' %}?tag={{ tag.slug }}{% if active_status %}&amp;status={{ active_status }}{% endif %}{% if active_query %}&amp;q={{ active_query|urlencode }}{% endif %}"
                            hx-target="#grand-library-grid-container"
                            hx-swap="outerHTML"
                            hx-push-url="true"

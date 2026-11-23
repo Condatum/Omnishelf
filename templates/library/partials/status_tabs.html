@@ -3,8 +3,8 @@
      aria-label="Filter library by reading status"
      class="flex items-center gap-2 overflow-x-auto pb-1">
     {% for tab in status_tabs %}
-        <a href="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}"
-           hx-get="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}"
+        <a href="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}{% if active_query %}{% if tab.value or active_folder or active_tag %}&amp;{% endif %}q={{ active_query|urlencode }}{% endif %}"
+           hx-get="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}{% if active_query %}{% if tab.value or active_folder or active_tag %}&amp;{% endif %}q={{ active_query|urlencode }}{% endif %}"
            hx-target="#grand-library-grid-container"
            hx-swap="outerHTML"
            hx-push-url="true"
