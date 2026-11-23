@@ -64,3 +64,134 @@ class ViewportReaderTests(TestCase):
 
         entry_a.refresh_from_db()
         self.assertEqual(entry_a.last_read_at, old_time)
+
+
+class StateCaptureSnapshotTests(TestCase):
+    """Verify Freeze Snapshot creation, domain re-evaluation, smart chapter increment, and rollback."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user_a = User.objects.create_user(username='snap_a', password='StrongPassword123!')
+        cls.user_b = User.objects.create_user(username='snap_b', password='StrongPassword123!')
+
+    def test_smart_chapter_increment_regex(self):
+        from .utils import increment_chapter_label
+
+        self.assertEqual(increment_chapter_label('Ch. 41'), 'Ch. 42')
+        self.assertEqual(increment_chapter_label('Chapter 009'), 'Chapter 010')
+        self.assertEqual(increment_chapter_label('Arc 4 Pt 2'), 'Arc 4 Pt 3')
+        self.assertEqual(increment_chapter_label(''), 'Ch. 1')
+        self.assertEqual(increment_chapter_label('Prologue'), 'Prologue 2')
+
+    def test_freeze_snapshot_updates_entry_domain_and_logs_history(self):
+        from library.models import ReadingSnapshot
+
+        entry = LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Realm Wanderer',
+            current_uri='https://www.royalroad.com/fiction/100/chapter/41',
+            chapter_label='Ch. 41',
+            notes='Before the guild trial.',
+        )
+        initial_snap = ReadingSnapshot.objects.create(
+            entry=entry,
+            uri=entry.current_uri,
+            chapter_label='Ch. 41',
+            notes='Before the guild trial.',
+        )
+
+        self.client.force_login(self.user_a)
+        freeze_resp = self.client.post(
+            reverse('reader:freeze_snapshot', kwargs={'entry_id': entry.pk}),
+            {
+                'source': 'hud',
+                'uri': 'https://www.reddit.com/r/HFY/comments/xyz/chapter_42',
+                'chapter_label': 'Ch. 41',
+                'increment_chapter': '1',
+                'notes': 'Finished guild trial cliffhanger!',
+            },
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(freeze_resp.status_code, 200)
+        self.assertContains(freeze_resp, 'Snapshot Frozen at Ch. 42')
+        self.assertIn('snapshotFrozen', freeze_resp['HX-Trigger'])
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.chapter_label, 'Ch. 42')
+        self.assertEqual(entry.source_domain, 'reddit.com')
+        self.assertEqual(entry.current_uri, 'https://www.reddit.com/r/HFY/comments/xyz/chapter_42')
+        self.assertEqual(entry.notes, 'Finished guild trial cliffhanger!')
+        self.assertEqual(entry.snapshots.count(), 2)
+
+        # Roll back to initial snapshot (Ch. 41 on royalroad.com)
+        rollback_resp = self.client.post(
+            reverse('reader:rollback_snapshot', kwargs={'entry_id': entry.pk, 'snapshot_id': initial_snap.pk}),
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(rollback_resp.status_code, 200)
+        self.assertContains(rollback_resp, 'Rolled back to Ch. 41')
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.chapter_label, 'Ch. 41')
+        self.assertEqual(entry.source_domain, 'royalroad.com')
+        self.assertEqual(entry.current_uri, 'https://www.royalroad.com/fiction/100/chapter/41')
+        self.assertEqual(entry.snapshots.count(), 3)
+
+    def test_quick_card_snapshot_modal_and_user_isolation(self):
+        from library.models import ReadingSnapshot
+
+        entry = LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Card Quick Snap Story',
+            current_uri='https://example.com/ch-10',
+            chapter_label='Ch. 10',
+        )
+        snap = ReadingSnapshot.objects.create(
+            entry=entry,
+            uri=entry.current_uri,
+            chapter_label='Ch. 10',
+        )
+
+        # Cross-tenant isolation: user_b gets 404 on quick modal, freeze, and rollback
+        self.client.force_login(self.user_b)
+        self.assertEqual(
+            self.client.get(reverse('reader:quick_snapshot_modal', kwargs={'entry_id': entry.pk}), HTTP_HX_REQUEST='true').status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse('reader:freeze_snapshot', kwargs={'entry_id': entry.pk}),
+                {'uri': 'https://evil.com/ch-99', 'chapter_label': 'Ch. 99'},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                reverse('reader:rollback_snapshot', kwargs={'entry_id': entry.pk, 'snapshot_id': snap.pk}),
+            ).status_code,
+            404,
+        )
+
+        # Owner updates snapshot via quick card modal
+        self.client.force_login(self.user_a)
+        modal_resp = self.client.get(
+            reverse('reader:quick_snapshot_modal', kwargs={'entry_id': entry.pk}),
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(modal_resp.status_code, 200)
+        self.assertContains(modal_resp, '+1 Chapter')
+
+        card_freeze = self.client.post(
+            reverse('reader:freeze_snapshot', kwargs={'entry_id': entry.pk}),
+            {
+                'source': 'card',
+                'uri': 'https://example.com/ch-11',
+                'chapter_label': 'Ch. 11',
+                'notes': 'Updated from card',
+            },
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(card_freeze.status_code, 200)
+        self.assertIn('closeModal', card_freeze['HX-Trigger'])
+        self.assertContains(card_freeze, 'Ch. 11')
+
