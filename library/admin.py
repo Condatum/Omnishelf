@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Folder, LibraryEntry, ReadingSnapshot, Tag
+from .models import Folder, LibraryEntry, ReadingSnapshot, Tag, UsabilityMetric
 
 
 @admin.register(Folder)
@@ -29,3 +29,11 @@ class ReadingSnapshotAdmin(admin.ModelAdmin):
     list_display = ('entry', 'chapter_label', 'uri', 'created_at')
     list_filter = ('created_at',)
     search_fields = ('uri', 'chapter_label')
+
+
+@admin.register(UsabilityMetric)
+class UsabilityMetricAdmin(admin.ModelAdmin):
+    list_display = ('user', 'utility_rating', 'session_start_to_resume_ms', 'created_at')
+    list_filter = ('utility_rating', 'created_at')
+    search_fields = ('user__username', 'feedback_notes')
+

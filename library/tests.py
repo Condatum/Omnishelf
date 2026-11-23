@@ -546,5 +546,98 @@ class OmniSearchTests(TestCase):
         self.assertContains(r_combo_hit, 'First Contact')
 
 
+class UxValidationTelemetryTests(TestCase):
+    """Verify session-start latency tracking, Usability Feedback submissions, and 60%+ High Utility math."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user_a = User.objects.create_user(username='ux_reader_a', password='StrongPassword123!')
+        cls.user_b = User.objects.create_user(username='ux_reader_b', password='StrongPassword123!')
+
+    def test_track_resume_latency_and_entry_ownership(self):
+        from .models import UsabilityMetric
+
+        entry_a = LibraryEntry.objects.create(
+            user=self.user_a,
+            custom_title='Latency Story A',
+            current_uri='https://royalroad.com/ch1',
+        )
+        entry_b = LibraryEntry.objects.create(
+            user=self.user_b,
+            custom_title='Private Story B',
+            current_uri='https://royalroad.com/ch2',
+        )
+
+        self.client.force_login(self.user_a)
+        resp = self.client.post(
+            reverse('track_resume_latency'),
+            {'session_start_to_resume_ms': '2400', 'entry_id': str(entry_a.pk)},
+        )
+        self.assertEqual(resp.status_code, 201)
+        metric = UsabilityMetric.objects.get(user=self.user_a, entry=entry_a)
+        self.assertEqual(metric.session_start_to_resume_ms, 2400)
+
+        # Attempting to associate another user's entry_id must not attach entry_b
+        resp_other = self.client.post(
+            reverse('track_resume_latency'),
+            {'session_start_to_resume_ms': '1800', 'entry_id': str(entry_b.pk)},
+        )
+        self.assertEqual(resp_other.status_code, 201)
+        self.assertFalse(UsabilityMetric.objects.filter(user=self.user_a, entry=entry_b).exists())
+
+    def test_usability_study_high_utility_percentage_and_isolation(self):
+        from .models import UsabilityMetric, UtilityRating
+
+        # Simulate 11 study submissions across users (7 HIGH, 3 MODERATE, 1 LOW) + 1 HTMX submission by user_a (= 8/12 = 66.7%)
+        for _ in range(7):
+            UsabilityMetric.objects.create(
+                user=self.user_b,
+                utility_rating=UtilityRating.HIGH,
+                session_start_to_resume_ms=3000,
+                feedback_notes='Confidential User B note',
+            )
+        for _ in range(3):
+            UsabilityMetric.objects.create(
+                user=self.user_b,
+                utility_rating=UtilityRating.MODERATE,
+                session_start_to_resume_ms=4000,
+            )
+        UsabilityMetric.objects.create(
+            user=self.user_b,
+            utility_rating=UtilityRating.LOW,
+            session_start_to_resume_ms=2000,
+        )
+
+        self.client.force_login(self.user_a)
+        submit_resp = self.client.post(
+            reverse('usability_feedback'),
+            {
+                'utility_rating': UtilityRating.HIGH,
+                'feedback_notes': 'Saved tons of time finding my RoyalRoad chapter.',
+                'session_start_to_resume_ms': '3000',
+                'from_metrics_page': '1',
+            },
+            HTTP_HX_REQUEST='true',
+        )
+        self.assertEqual(submit_resp.status_code, 200)
+        self.assertIn('closeModal', submit_resp['HX-Trigger'])
+
+        # Verify /ux-metrics/ summary dashboard math and tenancy isolation
+        dash_resp = self.client.get(reverse('ux_metrics'))
+        self.assertEqual(dash_resp.status_code, 200)
+        self.assertEqual(dash_resp.context['cohort_total_ratings'], 12)
+        self.assertEqual(dash_resp.context['cohort_high_count'], 8)
+        self.assertEqual(dash_resp.context['cohort_high_utility_pct'], 66.7)
+        self.assertTrue(dash_resp.context['cohort_meets_target'])
+        self.assertEqual(dash_resp.context['cohort_avg_resume_seconds'], 3.17)
+        self.assertEqual(dash_resp.context['cohort_time_saved_seconds'], 41.83)
+        self.assertContains(dash_resp, '66.7%')
+        self.assertContains(dash_resp, 'Meets 60%+ Goal')
+        self.assertContains(dash_resp, 'Saved tons of time finding my RoyalRoad chapter.')
+        # Personal table must NEVER expose User B's private notes
+        self.assertNotContains(dash_resp, 'Confidential User B note')
+
+
+
 
 

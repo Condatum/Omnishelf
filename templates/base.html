@@ -108,6 +108,7 @@
             <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300" aria-label="Primary Navigation">
                 <a href="{% url 'home' %}" class="hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-1">Grand Library</a>
                 {% if user.is_authenticated %}
+                    <a href="{% url 'ux_metrics' %}" class="hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-1">UX Metrics</a>
                     <a href="{% url 'accounts:settings' %}" class="hover:text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded px-1.5 py-1">Backup &amp; Settings</a>
                     <span class="text-slate-500">|</span>
                     <span class="text-xs text-slate-400">Signed in as <strong class="text-slate-200">{{ user.username }}</strong></span>
@@ -143,6 +144,7 @@
         <div x-show="mobileMenuOpen" x-cloak x-transition class="md:hidden border-t border-shelf-border bg-shelf-surface px-4 py-3 space-y-2">
             <a href="{% url 'home' %}" class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-200 hover:bg-shelf-elevated">Grand Library</a>
             {% if user.is_authenticated %}
+                <a href="{% url 'ux_metrics' %}" class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-200 hover:bg-shelf-elevated">UX Metrics</a>
                 <a href="{% url 'accounts:settings' %}" class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-200 hover:bg-shelf-elevated">Backup &amp; Settings</a>
                 <div class="px-3 py-1 text-xs text-slate-400">Signed in as {{ user.username }}</div>
                 <form method="post" action="{% url 'accounts:logout' %}">
