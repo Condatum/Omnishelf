@@ -638,6 +638,196 @@ class UxValidationTelemetryTests(TestCase):
         self.assertNotContains(dash_resp, 'Confidential User B note')
 
 
+class EndToEndLifecycleIntegrationTests(TestCase):
+    """End-to-end integration test covering the complete OmniShelf user lifecycle and a11y audit."""
+
+    def test_full_user_lifecycle_from_signup_to_json_backup_restore(self):
+        import json
+        import shutil
+        import tempfile
+        from io import BytesIO
+        from PIL import Image
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from django.test import override_settings
+
+        from .models import UtilityRating
+
+        tmp_media = tempfile.mkdtemp()
+        try:
+            with override_settings(MEDIA_ROOT=tmp_media):
+                # 1. Signup
+                signup_resp = self.client.post(
+                    reverse('accounts:register'),
+                    {
+                        'username': 'e2e_reader',
+                        'email': 'e2e@example.com',
+                        'password1': 'StrongPassword123!',
+                        'password2': 'StrongPassword123!',
+                    },
+                )
+                self.assertRedirects(signup_resp, reverse('home'))
+                user = User.objects.get(username='e2e_reader')
+
+                # 2. Create Folder & Tag from Taxonomy Sidebar
+                self.assertEqual(
+                    self.client.post(
+                        reverse('library:folder_create'),
+                        {'name': 'Web Serials', 'color_hex': '#6366f1'},
+                        HTTP_HX_REQUEST='true',
+                    ).status_code,
+                    200,
+                )
+                self.assertEqual(
+                    self.client.post(
+                        reverse('library:tag_create'),
+                        {'name': 'Progression'},
+                        HTTP_HX_REQUEST='true',
+                    ).status_code,
+                    200,
+                )
+                folder = Folder.objects.get(user=user, name='Web Serials')
+                tag = Tag.objects.get(user=user, slug='progression')
+
+                # 3. Add Story with Custom Cover Upload & Alias
+                img_buf = BytesIO()
+                Image.new('RGB', (120, 160), color=(79, 70, 229)).save(img_buf, format='PNG')
+                cover_file = SimpleUploadedFile('e2e-cover.png', img_buf.getvalue(), content_type='image/png')
+
+                create_resp = self.client.post(
+                    reverse('library:entry_create'),
+                    {
+                        'custom_title': 'The Arcane Spire',
+                        'original_source_title': 'spire-web-novel-blog',
+                        'current_uri': 'https://www.royalroad.com/fiction/500/chapter/41',
+                        'chapter_label': 'Ch. 41',
+                        'status': ReadingStatus.ACTIVE,
+                        'folder': str(folder.pk),
+                        'tags': [str(tag.pk)],
+                        'custom_cover_image': cover_file,
+                        'notes': 'Stopped right before the dungeon boss.',
+                    },
+                    HTTP_HX_REQUEST='true',
+                )
+                self.assertEqual(create_resp.status_code, 200)
+                entry = LibraryEntry.objects.get(user=user, custom_title='The Arcane Spire')
+                self.assertEqual(entry.source_domain, 'royalroad.com')
+                self.assertEqual(entry.snapshots.count(), 1)
+
+                # 4. Omni-Search combined with Folder & Status
+                search_resp = self.client.get(
+                    reverse('library:omni_search'),
+                    {
+                        'q': 'royalroad dungeon',
+                        'folder': str(folder.pk),
+                        'status': ReadingStatus.ACTIVE,
+                    },
+                    HTTP_HX_REQUEST='true',
+                )
+                self.assertEqual(search_resp.status_code, 200)
+                self.assertContains(search_resp, 'The Arcane Spire')
+
+                # 5. Track session-start latency & Launch Deep-Link Resume Viewport
+                latency_resp = self.client.post(
+                    reverse('track_resume_latency'),
+                    {'session_start_to_resume_ms': '2100', 'entry_id': str(entry.pk)},
+                )
+                self.assertEqual(latency_resp.status_code, 201)
+
+                reader_resp = self.client.get(reverse('reader:viewport', kwargs={'entry_id': entry.pk}))
+                self.assertEqual(reader_resp.status_code, 200)
+                self.assertContains(reader_resp, 'sandbox="allow-scripts allow-same-origin allow-forms allow-popups"')
+                self.assertContains(reader_resp, 'External Tab Fallback')
+
+                # 6. Freeze Snapshot with +1 Chapter & Domain Switch
+                freeze_resp = self.client.post(
+                    reverse('reader:freeze_snapshot', kwargs={'entry_id': entry.pk}),
+                    {
+                        'source': 'hud',
+                        'uri': 'https://www.reddit.com/r/HFY/comments/e2e/ch_42',
+                        'chapter_label': 'Ch. 41',
+                        'increment_chapter': '1',
+                        'notes': 'Defeated boss, entered floor 5.',
+                    },
+                    HTTP_HX_REQUEST='true',
+                )
+                self.assertEqual(freeze_resp.status_code, 200)
+                self.assertContains(freeze_resp, 'Snapshot Frozen at Ch. 42')
+                entry.refresh_from_db()
+                self.assertEqual(entry.chapter_label, 'Ch. 42')
+                self.assertEqual(entry.source_domain, 'reddit.com')
+                self.assertEqual(entry.snapshots.count(), 2)
+
+                # 7. Submit Usability Study Rating & Check /ux-metrics/
+                fb_resp = self.client.post(
+                    reverse('usability_feedback'),
+                    {'utility_rating': UtilityRating.HIGH, 'feedback_notes': 'Super fast chapter resume!'},
+                    HTTP_HX_REQUEST='true',
+                )
+                self.assertEqual(fb_resp.status_code, 204)
+                metrics_resp = self.client.get(reverse('ux_metrics'))
+                self.assertEqual(metrics_resp.status_code, 200)
+                self.assertContains(metrics_resp, '100.0%')
+
+                # 8. Export JSON Backup & Restore Idempotently into a Fresh Account
+                export_resp = self.client.get(reverse('accounts:export_library'))
+                self.assertEqual(export_resp.status_code, 200)
+                backup_payload = json.loads(export_resp.content.decode('utf-8'))
+                self.assertEqual(len(backup_payload['folders']), 1)
+                self.assertEqual(len(backup_payload['tags']), 1)
+                self.assertEqual(len(backup_payload['entries']), 1)
+                self.assertEqual(len(backup_payload['entries'][0]['snapshots']), 2)
+
+                # Switch to a fresh account and import backup twice (verifying idempotency)
+                user_restored = User.objects.create_user(
+                    username='e2e_restored',
+                    password='StrongPassword123!',
+                )
+                self.client.force_login(user_restored)
+                backup_file_1 = SimpleUploadedFile('backup.json', export_resp.content, content_type='application/json')
+                imp1 = self.client.post(reverse('accounts:import_library'), {'backup_file': backup_file_1}, follow=True)
+                self.assertEqual(imp1.status_code, 200)
+                self.assertEqual(LibraryEntry.objects.filter(user=user_restored).count(), 1)
+                restored_entry = LibraryEntry.objects.get(user=user_restored)
+                self.assertEqual(restored_entry.custom_title, 'The Arcane Spire')
+                self.assertEqual(restored_entry.chapter_label, 'Ch. 42')
+                self.assertEqual(restored_entry.snapshots.count(), 2)
+
+                backup_file_2 = SimpleUploadedFile('backup.json', export_resp.content, content_type='application/json')
+                imp2 = self.client.post(reverse('accounts:import_library'), {'backup_file': backup_file_2}, follow=True)
+                self.assertEqual(imp2.status_code, 200)
+                self.assertEqual(LibraryEntry.objects.filter(user=user_restored).count(), 1)
+        finally:
+            shutil.rmtree(tmp_media, ignore_errors=True)
+
+    def test_accessibility_and_modern_web_guidance_invariants(self):
+        user = User.objects.create_user(username='a11y_user', password='StrongPassword123!')
+        entry = LibraryEntry.objects.create(
+            user=user,
+            custom_title='Accessible Serial',
+            current_uri='https://example.com/ch-1',
+            chapter_label='Ch. 1',
+        )
+        self.client.force_login(user)
+
+        dash = self.client.get(reverse('library:dashboard'))
+        self.assertEqual(dash.status_code, 200)
+        self.assertContains(dash, 'href="#main-content"')
+        self.assertContains(dash, '<main id="main-content"')
+        self.assertContains(dash, '<search ')
+        self.assertContains(dash, '<dialog id="omnishelf-modal"')
+        self.assertContains(dash, 'integrity="sha384-')
+        self.assertContains(dash, 'crossorigin="anonymous"')
+        self.assertNotContains(dash, 'role="dialog"')
+        self.assertNotContains(dash, 'aria-modal')
+
+        reader = self.client.get(reverse('reader:viewport', kwargs={'entry_id': entry.pk}))
+        self.assertEqual(reader.status_code, 200)
+        self.assertContains(reader, 'role="toolbar"')
+        self.assertContains(reader, 'title="Accessible Serial')
+        self.assertNotContains(reader, 'scrolling="no"')
+
+
+
 
 
 

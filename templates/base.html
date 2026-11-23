@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>{% block title %}OmniShelf — Unified Reading Progress Tracker{% endblock %}</title>
 
     <!-- Tailwind CSS (Zero-build Play CDN for Django Templates) -->
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com" referrerpolicy="no-referrer"></script>
     <script>
         tailwind.config = {
             darkMode: 'class',
@@ -28,9 +29,17 @@
         }
     </script>
 
-    <!-- HTMX & Alpine.js -->
-    <script src="https://unpkg.com/htmx.org@2.0.4" defer></script>
-    <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+    <!-- HTMX & Alpine.js (Version-pinned with Subresource Integrity) -->
+    <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"
+            integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+"
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"
+            defer></script>
+    <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js"
+            integrity="sha384-X9kJyAubVxnP0hcA+AMMs21U445qsnqhnUF8EBlEpP3a42Kh/JwWjlv2ZcvGfphb"
+            crossorigin="anonymous"
+            referrerpolicy="no-referrer"
+            defer></script>
 
     <style>
         :root {
@@ -62,6 +71,20 @@
         :where(a:any-link, button, input, select, textarea, summary):focus-visible {
             outline: 2px solid #818cf8;
             outline-offset: 2px;
+        }
+
+        /* Modern Web Guidance: minimum touch target sizing on coarse pointers */
+        @media (pointer: coarse) {
+            :where(button, a[role="button"], input[type="submit"], select) {
+                min-block-size: 2.75rem;
+            }
+        }
+
+        /* Modern Web Guidance: respect reduced motion preferences */
+        @media (prefers-reduced-motion: reduce) {
+            .story-cover-img {
+                transition: none;
+            }
         }
 
         /* Modern Web Guidance: prevent page scroll under native modal <dialog> */
@@ -197,7 +220,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <!-- Shared Native Top-Layer Modal Dialog (modern-web-guidance: no redundant role/aria-modal) -->
+    <!-- Shared Native Top-Layer Modal Dialog -->
     <dialog id="omnishelf-modal"
             closedby="any"
             aria-labelledby="modal-heading"
@@ -234,7 +257,7 @@
 
             dialog.addEventListener('close', () => {
                 dialog.returnValue = '';
-                body.innerHTML = '';
+                body.replaceChildren();
             });
 
             // Modern Web Guidance fallback for browsers without native dialog closedby="any"
