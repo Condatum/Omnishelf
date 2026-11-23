@@ -1,4 +1,32 @@
-<div id="grand-library-grid-container">
+<div id="grand-library-grid-container" {% if oob %}hx-swap-oob="true"{% endif %}>
+    {% if has_active_filters %}
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-shelf-border bg-shelf-surface/70 px-4 py-2.5 text-xs text-slate-300">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-slate-400">Active filters:</span>
+                {% if active_status %}
+                    <span class="rounded-md bg-indigo-500/15 px-2 py-0.5 font-medium text-indigo-200">Status: {{ active_status }}</span>
+                {% endif %}
+                {% if active_folder == 'unfiled' %}
+                    <span class="rounded-md bg-indigo-500/15 px-2 py-0.5 font-medium text-indigo-200">Folder: Unfiled</span>
+                {% elif active_folder_obj %}
+                    <span class="rounded-md bg-indigo-500/15 px-2 py-0.5 font-medium text-indigo-200">Folder: {{ active_folder_obj.name }}</span>
+                {% endif %}
+                {% if active_tag_obj %}
+                    <span class="rounded-md bg-indigo-500/15 px-2 py-0.5 font-medium text-indigo-200">Tag: #{{ active_tag_obj.name }}</span>
+                {% endif %}
+                <span class="text-slate-500">({{ entries|length }} shown)</span>
+            </div>
+            <a href="{% url 'library:dashboard' %}"
+               hx-get="{% url 'library:dashboard' %}"
+               hx-target="#grand-library-grid-container"
+               hx-swap="outerHTML"
+               hx-push-url="true"
+               class="font-semibold text-indigo-300 hover:text-indigo-200">
+                Clear all
+            </a>
+        </div>
+    {% endif %}
+
     {% if entries %}
         <div class="grand-library-grid" role="list" aria-label="Tracked stories">
             {% for entry in entries %}
@@ -6,6 +34,23 @@
                     {% include "library/partials/entry_card.html" with entry=entry %}
                 </div>
             {% endfor %}
+        </div>
+    {% elif has_active_filters %}
+        <div class="rounded-2xl border border-dashed border-shelf-border bg-shelf-surface/60 px-6 py-14 text-center">
+            <h2 class="text-lg font-semibold text-white">No stories match these filters</h2>
+            <p class="mx-auto mt-2 max-w-md text-sm text-slate-400">
+                Try clearing your active status, folder, or tag filters to see all stories in your shelf.
+            </p>
+            <div class="mt-5">
+                <a href="{% url 'library:dashboard' %}"
+                   hx-get="{% url 'library:dashboard' %}"
+                   hx-target="#grand-library-grid-container"
+                   hx-swap="outerHTML"
+                   hx-push-url="true"
+                   class="inline-flex min-h-10 items-center rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+                    Reset Filters
+                </a>
+            </div>
         </div>
     {% else %}
         <div class="rounded-2xl border border-dashed border-shelf-border bg-shelf-surface/60 px-6 py-16 text-center">

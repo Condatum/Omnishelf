@@ -1,0 +1,19 @@
+<nav id="status-filter-tabs"
+     {% if oob %}hx-swap-oob="true"{% endif %}
+     aria-label="Filter library by reading status"
+     class="flex items-center gap-2 overflow-x-auto pb-1">
+    {% for tab in status_tabs %}
+        <a href="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}"
+           hx-get="{% url 'library:dashboard' %}?{% if tab.value %}status={{ tab.value }}{% endif %}{% if active_folder %}{% if tab.value %}&amp;{% endif %}folder={{ active_folder }}{% endif %}{% if active_tag %}{% if tab.value or active_folder %}&amp;{% endif %}tag={{ active_tag }}{% endif %}"
+           hx-target="#grand-library-grid-container"
+           hx-swap="outerHTML"
+           hx-push-url="true"
+           {% if active_status == tab.value %}aria-current="page"{% endif %}
+           class="inline-flex min-h-9 shrink-0 items-center gap-2 rounded-xl border px-3.5 py-1.5 text-xs font-semibold transition-colors {% if active_status == tab.value %}border-indigo-500/50 bg-indigo-600/20 text-indigo-200{% else %}border-shelf-border bg-shelf-surface text-slate-300 hover:border-slate-600 hover:text-white{% endif %}">
+            <span>{{ tab.label }}</span>
+            <span class="rounded-md bg-shelf-bg/80 px-1.5 py-0.5 text-[11px] {% if active_status == tab.value %}text-indigo-200{% else %}text-slate-400{% endif %}">
+                {{ tab.count }}
+            </span>
+        </a>
+    {% endfor %}
+</nav>

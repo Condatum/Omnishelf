@@ -1,78 +1,183 @@
 import json
+import uuid
 
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
 from django.http import HttpResponse
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.urls import reverse_lazy
+from django.utils.text import slugify
+from django.views.decorators.http import require_POST
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from .forms import LibraryEntryForm
+from .forms import FolderForm, LibraryEntryForm, TagForm
 from .models import Folder, LibraryEntry, ReadingSnapshot, ReadingStatus, Tag
 
 
-def _get_user_library_context(user):
-    """Build strictly user-scoped entries and stats context for Grand Library responses."""
-    entries = (
-        LibraryEntry.objects.filter(user=user)
-        .select_related('folder')
-        .prefetch_related('tags')
-    )
-    stats = LibraryEntry.objects.filter(user=user).aggregate(
+def _extract_filter_params(request) -> dict:
+    """Read active status, folder, and tag filter parameters from query string or POST."""
+    source = request.GET if request.method == 'GET' else request.POST
+    status = (source.get('status') or '').strip().upper()
+    if status not in ReadingStatus.values:
+        status = ''
+
+    folder_param = (source.get('folder') or '').strip()
+    tag_slug = (source.get('tag') or '').strip()
+    return {
+        'active_status': status,
+        'active_folder': folder_param,
+        'active_tag': tag_slug,
+    }
+
+
+def _get_user_library_context(user, filters: dict | None = None) -> dict:
+    """Build strictly user-scoped filtered entries, taxonomy sidebar data, and stats."""
+    filters = filters or {}
+    active_status = filters.get('active_status', '')
+    active_folder = filters.get('active_folder', '')
+    active_tag = filters.get('active_tag', '')
+
+    base_qs = LibraryEntry.objects.filter(user=user)
+    entries = base_qs.select_related('folder').prefetch_related('tags')
+
+    active_folder_obj = None
+    active_tag_obj = None
+
+    if active_status in ReadingStatus.values:
+        entries = entries.filter(status=active_status)
+
+    if active_folder == 'unfiled':
+        entries = entries.filter(folder__isnull=True)
+    elif active_folder:
+        try:
+            folder_uuid = uuid.UUID(str(active_folder))
+            active_folder_obj = Folder.objects.filter(user=user, pk=folder_uuid).first()
+            if active_folder_obj:
+                entries = entries.filter(folder=active_folder_obj)
+            else:
+                active_folder = ''
+        except ValueError:
+            active_folder = ''
+
+    if active_tag:
+        active_tag_obj = Tag.objects.filter(user=user, slug=active_tag).first()
+        if active_tag_obj:
+            entries = entries.filter(tags=active_tag_obj).distinct()
+        else:
+            active_tag = ''
+
+    stats = base_qs.aggregate(
         total_count=Count('id'),
         active_count=Count('id', filter=Q(status=ReadingStatus.ACTIVE)),
         binge_ready_count=Count('id', filter=Q(status=ReadingStatus.BINGE_READY)),
         on_hold_count=Count('id', filter=Q(status=ReadingStatus.ON_HOLD)),
         hiatus_count=Count('id', filter=Q(status=ReadingStatus.HIATUS)),
         completed_count=Count('id', filter=Q(status=ReadingStatus.COMPLETED)),
+        unfiled_count=Count('id', filter=Q(folder__isnull=True)),
     )
+
+    folders = Folder.objects.filter(user=user).annotate(
+        entry_count=Count('entries', filter=Q(entries__user=user), distinct=True),
+    )
+    tags = Tag.objects.filter(user=user).annotate(
+        entry_count=Count('entries', filter=Q(entries__user=user), distinct=True),
+    )
+
+    status_tabs = [
+        {'value': '', 'label': 'All', 'count': stats['total_count']},
+        {'value': ReadingStatus.ACTIVE, 'label': 'Active', 'count': stats['active_count']},
+        {'value': ReadingStatus.BINGE_READY, 'label': 'Binge-Ready', 'count': stats['binge_ready_count']},
+        {'value': ReadingStatus.ON_HOLD, 'label': 'On Hold', 'count': stats['on_hold_count']},
+        {'value': ReadingStatus.HIATUS, 'label': 'Hiatus', 'count': stats['hiatus_count']},
+        {'value': ReadingStatus.COMPLETED, 'label': 'Completed', 'count': stats['completed_count']},
+    ]
+
+    has_active_filters = bool(active_status or active_folder or active_tag)
+
     return {
         'entries': entries,
         **stats,
-        'folders': Folder.objects.filter(user=user),
-        'tags': Tag.objects.filter(user=user),
+        'folders': folders,
+        'tags': tags,
         'status_choices': ReadingStatus.choices,
+        'status_tabs': status_tabs,
+        'active_status': active_status,
+        'active_folder': active_folder,
+        'active_folder_obj': active_folder_obj,
+        'active_tag': active_tag,
+        'active_tag_obj': active_tag_obj,
+        'has_active_filters': has_active_filters,
     }
 
 
-def _render_htmx_grid_response(request, toast_message: str, level: str = 'success') -> HttpResponse:
-    """Return updated entry grid + OOB stats strip and trigger modal close + toast."""
-    context = _get_user_library_context(request.user)
+def _render_htmx_workspace_response(
+    request,
+    toast_message: str,
+    level: str = 'success',
+    close_modal: bool = True,
+    filters: dict | None = None,
+) -> HttpResponse:
+    """Return updated entry grid + OOB stats strip + OOB sidebar + status tabs."""
+    context = _get_user_library_context(request.user, filters=filters)
     grid_html = render_to_string('library/partials/entry_grid.html', context, request=request)
     stats_html = render_to_string(
         'library/partials/stats_strip.html',
         {**context, 'oob': True},
         request=request,
     )
-    response = HttpResponse(grid_html + stats_html)
-    response['HX-Trigger'] = json.dumps({
-        'closeModal': True,
-        'show-toast': {'message': toast_message, 'level': level},
-    })
+    sidebar_html = render_to_string(
+        'library/partials/taxonomy_sidebar.html',
+        {**context, 'oob': True},
+        request=request,
+    )
+    tabs_html = render_to_string(
+        'library/partials/status_tabs.html',
+        {**context, 'oob': True},
+        request=request,
+    )
+    response = HttpResponse(grid_html + stats_html + sidebar_html + tabs_html)
+    trigger_payload = {'show-toast': {'message': toast_message, 'level': level}}
+    if close_modal:
+        trigger_payload['closeModal'] = True
+    response['HX-Trigger'] = json.dumps(trigger_payload)
     return response
 
 
 class GrandLibraryView(LoginRequiredMixin, ListView):
-    """Render the authenticated user's Grand Library visual grid dashboard."""
+    """Render the authenticated user's Grand Library with dynamic taxonomy filtering."""
 
     model = LibraryEntry
     template_name = 'library/dashboard.html'
     context_object_name = 'entries'
 
     def get_queryset(self):
-        return (
-            LibraryEntry.objects.filter(user=self.request.user)
-            .select_related('folder')
-            .prefetch_related('tags')
-        )
+        self._filters = _extract_filter_params(self.request)
+        self._library_context = _get_user_library_context(self.request.user, filters=self._filters)
+        return self._library_context['entries']
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context.update(_get_user_library_context(self.request.user))
-        context['entries'] = self.object_list
+        context.update(self._library_context)
         return context
+
+    def render_to_response(self, context, **response_kwargs):
+        if self.request.htmx:
+            grid_html = render_to_string('library/partials/entry_grid.html', context, request=self.request)
+            tabs_html = render_to_string(
+                'library/partials/status_tabs.html',
+                {**context, 'oob': True},
+                request=self.request,
+            )
+            sidebar_html = render_to_string(
+                'library/partials/taxonomy_sidebar.html',
+                {**context, 'oob': True},
+                request=self.request,
+            )
+            return HttpResponse(grid_html + tabs_html + sidebar_html)
+        return super().render_to_response(context, **response_kwargs)
 
 
 class LibraryEntryCreateView(LoginRequiredMixin, CreateView):
@@ -109,7 +214,7 @@ class LibraryEntryCreateView(LoginRequiredMixin, CreateView):
             notes=self.object.notes,
         )
         if self.request.htmx:
-            return _render_htmx_grid_response(
+            return _render_htmx_workspace_response(
                 self.request,
                 f'Added "{self.object.custom_title}" to your Grand Library.',
             )
@@ -154,7 +259,7 @@ class LibraryEntryUpdateView(LoginRequiredMixin, UpdateView):
     def form_valid(self, form):
         self.object = form.save()
         if self.request.htmx:
-            return _render_htmx_grid_response(
+            return _render_htmx_workspace_response(
                 self.request,
                 f'Updated "{self.object.custom_title}".',
             )
@@ -187,13 +292,158 @@ class LibraryEntryDeleteView(LoginRequiredMixin, DeleteView):
         title = self.object.custom_title
         self.object.delete()
         if self.request.htmx:
-            return _render_htmx_grid_response(
+            return _render_htmx_workspace_response(
                 self.request,
                 f'Removed "{title}" from your Grand Library.',
                 level='info',
             )
         messages.info(self.request, f'Removed "{title}" from your Grand Library.')
         return HttpResponse(status=302, headers={'Location': str(self.success_url)})
+
+
+def _render_sidebar_htmx_response(request, toast_message: str, level: str = 'success', refresh_grid: bool = False):
+    """Return updated sidebar partial and optionally OOB-refresh the story grid."""
+    context = _get_user_library_context(request.user)
+    sidebar_html = render_to_string('library/partials/taxonomy_sidebar.html', context, request=request)
+    if refresh_grid:
+        grid_html = render_to_string(
+            'library/partials/entry_grid.html',
+            {**context, 'oob': True},
+            request=request,
+        )
+        body = sidebar_html + grid_html
+    else:
+        body = sidebar_html
+    response = HttpResponse(body)
+    response['HX-Trigger'] = json.dumps({
+        'show-toast': {'message': toast_message, 'level': level},
+    })
+    return response
+
+
+@login_required
+@require_POST
+def folder_create_view(request):
+    """Create a user-scoped Folder from the taxonomy sidebar."""
+    form = FolderForm(request.POST, user=request.user)
+    if form.is_valid():
+        folder = form.save(commit=False)
+        folder.user = request.user
+        folder.save()
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, f'Created folder "{folder.name}".')
+        messages.success(request, f'Created folder "{folder.name}".')
+    else:
+        err = next(iter(form.errors.values()))[0]
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, str(err), level='error')
+        messages.error(request, str(err))
+    return redirect('library:dashboard')
+
+
+@login_required
+@require_POST
+def folder_rename_view(request, pk):
+    """Rename a user-owned Folder inline from the taxonomy sidebar."""
+    folder = get_object_or_404(Folder, pk=pk, user=request.user)
+    form = FolderForm(request.POST, instance=folder, user=request.user)
+    if form.is_valid():
+        folder = form.save()
+        if request.htmx:
+            return _render_sidebar_htmx_response(
+                request,
+                f'Renamed folder to "{folder.name}".',
+                refresh_grid=True,
+            )
+        messages.success(request, f'Renamed folder to "{folder.name}".')
+    else:
+        err = next(iter(form.errors.values()))[0]
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, str(err), level='error')
+        messages.error(request, str(err))
+    return redirect('library:dashboard')
+
+
+@login_required
+@require_POST
+def folder_delete_view(request, pk):
+    """Delete a user-owned Folder (preserving its stories as unfiled)."""
+    folder = get_object_or_404(Folder, pk=pk, user=request.user)
+    name = folder.name
+    folder.delete()
+    if request.htmx:
+        return _render_sidebar_htmx_response(
+            request,
+            f'Deleted folder "{name}".',
+            level='info',
+            refresh_grid=True,
+        )
+    messages.info(request, f'Deleted folder "{name}".')
+    return redirect('library:dashboard')
+
+
+@login_required
+@require_POST
+def tag_create_view(request):
+    """Create a user-scoped Tag from the taxonomy sidebar."""
+    form = TagForm(request.POST, user=request.user)
+    if form.is_valid():
+        tag = form.save(commit=False)
+        tag.user = request.user
+        tag.slug = slugify(tag.name)
+        tag.save()
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, f'Created tag "#{tag.name}".')
+        messages.success(request, f'Created tag "#{tag.name}".')
+    else:
+        err = next(iter(form.errors.values()))[0]
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, str(err), level='error')
+        messages.error(request, str(err))
+    return redirect('library:dashboard')
+
+
+@login_required
+@require_POST
+def tag_rename_view(request, pk):
+    """Rename a user-owned Tag and update its slug cleanly."""
+    tag = get_object_or_404(Tag, pk=pk, user=request.user)
+    form = TagForm(request.POST, instance=tag, user=request.user)
+    if form.is_valid():
+        tag = form.save(commit=False)
+        tag.slug = slugify(tag.name)
+        tag.save()
+        if request.htmx:
+            return _render_sidebar_htmx_response(
+                request,
+                f'Renamed tag to "#{tag.name}".',
+                refresh_grid=True,
+            )
+        messages.success(request, f'Renamed tag to "#{tag.name}".')
+    else:
+        err = next(iter(form.errors.values()))[0]
+        if request.htmx:
+            return _render_sidebar_htmx_response(request, str(err), level='error')
+        messages.error(request, str(err))
+    return redirect('library:dashboard')
+
+
+@login_required
+@require_POST
+def tag_delete_view(request, pk):
+    """Delete a user-owned Tag from the taxonomy sidebar."""
+    tag = get_object_or_404(Tag, pk=pk, user=request.user)
+    name = tag.name
+    tag.delete()
+    if request.htmx:
+        return _render_sidebar_htmx_response(
+            request,
+            f'Deleted tag "#{name}".',
+            level='info',
+            refresh_grid=True,
+        )
+    messages.info(request, f'Deleted tag "#{name}".')
+    return redirect('library:dashboard')
 
 
 def home_view(request):
