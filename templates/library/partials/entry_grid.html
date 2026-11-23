@@ -20,6 +20,13 @@
                 Save a direct chapter URI, set a custom cover and alias, and resume with a single click.
             </p>
             <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <a href="{% url 'library:entry_create' %}"
+                   hx-get="{% url 'library:entry_create' %}"
+                   hx-target="#modal-dialog-body"
+                   hx-swap="innerHTML"
+                   class="inline-flex min-h-10 items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500">
+                    Add Your First Story
+                </a>
                 <a href="{% url 'accounts:settings' %}"
                    class="inline-flex min-h-10 items-center gap-2 rounded-xl border border-shelf-border bg-shelf-elevated px-4 py-2 text-sm font-medium text-slate-200 transition-colors hover:border-indigo-500/50 hover:text-white">
                     Import Existing JSON Backup

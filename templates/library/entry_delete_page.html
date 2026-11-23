@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block title %}Remove Story — OmniShelf{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-lg px-4 py-10 sm:px-6 lg:px-8">
+    <div class="overflow-hidden rounded-2xl border border-shelf-border bg-shelf-surface shadow-2xl">
+        {% include "library/partials/entry_delete_modal.html" %}
+    </div>
+</section>
+{% endblock %}
